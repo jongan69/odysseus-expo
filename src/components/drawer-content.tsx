@@ -6,7 +6,14 @@ import { SafeAreaView } from "@/components/tw";
 import { useCompanion } from "@/state/companion-store";
 import { cn } from "@/utils/tailwind";
 import type { Href } from "expo-router";
-import { KeyRound, MessageSquarePlus, Plus, Server, TerminalSquare } from "lucide-react-native";
+import {
+  KeyRound,
+  MessageSquarePlus,
+  Plus,
+  Server,
+  TerminalSquare,
+  Wrench,
+} from "lucide-react-native";
 
 import React, { createContext, use, useCallback, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -145,6 +152,11 @@ export function DrawerContent({
           icon={TerminalSquare}
           label="Commands"
           onPress={() => onNavigate("/commands")}
+        />
+        <DrawerNavItem
+          icon={Wrench}
+          label="Tools"
+          onPress={() => onNavigate("/tools" as any)}
         />
         <DrawerNavItem
           icon={KeyRound}

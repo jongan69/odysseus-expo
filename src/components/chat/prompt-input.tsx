@@ -5,7 +5,13 @@ import {
   GlassView,
   isLiquidGlassAvailable,
 } from "expo-glass-effect";
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  Children,
+  isValidElement,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
@@ -24,6 +30,16 @@ const AnimatedGlassContainer = Animated.createAnimatedComponent(GlassContainer);
 export function PromptInput({ children }: { children: ReactNode }) {
   const { promptInputStyle, onPromptInputLayout } = useConversationContext();
   const { error } = useChatContext();
+  const accessories: ReactNode[] = [];
+  const controls: ReactNode[] = [];
+
+  Children.forEach(children, (child) => {
+    if (isValidElement(child) && (child.type as any) === PromptInputAccessory) {
+      accessories.push(child);
+    } else {
+      controls.push(child);
+    }
+  });
 
   return (
     <Animated.View
@@ -34,17 +50,25 @@ export function PromptInput({ children }: { children: ReactNode }) {
       <AnimatedGlassContainer
         style={{
           flex: 1,
-          flexDirection: "row",
+          flexDirection: "column",
           padding: 12,
           gap: 10,
-          alignItems: "flex-end",
         }}
         spacing={8}
       >
-        {children}
+        {accessories.length > 0 && (
+          <View className="w-full">{accessories}</View>
+        )}
+        <View className="w-full flex-row items-end gap-2.5">
+          {controls}
+        </View>
       </AnimatedGlassContainer>
     </Animated.View>
   );
+}
+
+export function PromptInputAccessory({ children }: { children: ReactNode }) {
+  return <View className="w-full px-1 pb-1">{children}</View>;
 }
 
 function PromptInputError({ message }: { message?: string }) {

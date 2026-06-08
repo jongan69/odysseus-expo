@@ -1,7 +1,7 @@
 import { Icon } from "@/components/icon";
 import { useCompanion } from "@/state/companion-store";
 import { cn } from "@/utils/tailwind";
-import { Check, MessageSquarePlus, RefreshCw, Server } from "lucide-react-native";
+import { Check, MessageSquarePlus, RefreshCw, Search, Server } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 
@@ -11,24 +11,35 @@ export function SessionScreen() {
     endpoints,
     sessions,
     activeSessionId,
+    selectedModel,
+    selectedEndpoint,
+    setSelectedModel,
     setActiveSessionId,
     createSession,
     refresh,
     error,
   } = useCompanion();
-  const [selectedEndpointId, setSelectedEndpointId] = useState<string>();
-  const [selectedModel, setSelectedModel] = useState<string>();
   const [name, setName] = useState("Mobile companion");
   const [rag, setRag] = useState(false);
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const selectedEndpoint = useMemo(
-    () =>
-      endpoints.find((endpoint) => endpoint.endpoint_id === selectedEndpointId) ??
-      endpoints[0],
-    [endpoints, selectedEndpointId],
-  );
   const model = selectedModel ?? selectedEndpoint?.models?.[0];
+  const filteredSessions = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return sessions;
+    return sessions.filter((session) =>
+      [
+        session.name,
+        session.model,
+        session.id,
+        String(session.message_count),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [query, sessions]);
 
   async function handleCreate() {
     setBusy(true);
@@ -91,8 +102,7 @@ export function SessionScreen() {
               <Pressable
                 key={endpoint.endpoint_id}
                 onPress={() => {
-                  setSelectedEndpointId(endpoint.endpoint_id);
-                  setSelectedModel(endpoint.models[0]);
+                  setSelectedModel(endpoint.endpoint_id, endpoint.models[0]);
                 }}
                 className={cn(
                   "rounded-xl border px-3 py-3 active:bg-muted border-continuous",
@@ -121,7 +131,7 @@ export function SessionScreen() {
             {selectedEndpoint.models.map((item) => (
               <Pressable
                 key={item}
-                onPress={() => setSelectedModel(item)}
+                onPress={() => setSelectedModel(selectedEndpoint.endpoint_id, item)}
                 className={cn(
                   "rounded-full border px-3 py-2 active:bg-muted",
                   model === item
@@ -160,10 +170,24 @@ export function SessionScreen() {
       </View>
 
       <View className="gap-2">
-        <Text className="px-1 text-sm font-semibold text-muted-foreground">
-          Sessions
-        </Text>
-        {sessions.map((session) => {
+        <View className="flex-row items-center gap-2 px-1">
+          <Text className="flex-1 text-sm font-semibold text-muted-foreground">
+            Sessions
+          </Text>
+          <Text className="font-mono text-xs text-muted-foreground">
+            {filteredSessions.length}
+          </Text>
+        </View>
+        <View className="flex-row items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5 border-continuous">
+          <Icon icon={Search} className="h-4 w-4 text-muted-foreground" />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search sessions"
+            className="min-w-0 flex-1 text-base text-foreground"
+          />
+        </View>
+        {filteredSessions.map((session) => {
           const selected = session.id === activeSessionId;
           return (
             <Pressable
@@ -186,6 +210,11 @@ export function SessionScreen() {
             </Pressable>
           );
         })}
+        {!filteredSessions.length && (
+          <Text className="rounded-[18px] border border-border bg-card p-4 text-sm text-muted-foreground border-continuous">
+            No sessions match that search.
+          </Text>
+        )}
       </View>
     </ScrollView>
   );

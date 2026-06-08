@@ -18,6 +18,7 @@ import {
   Trash2,
   TerminalSquare,
   User,
+  Wrench,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
@@ -61,6 +62,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Chat", icon: MessageSquarePlus },
   { href: "/chats", label: "Sessions", icon: Server },
   { href: "/commands", label: "Commands", icon: TerminalSquare },
+  { href: "/tools", label: "Tools", icon: Wrench },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 

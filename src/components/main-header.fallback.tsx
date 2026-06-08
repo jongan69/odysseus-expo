@@ -6,8 +6,8 @@ import { Pressable, Text, View } from "react-native";
 import { useDrawer } from "./drawer-content";
 
 function HeaderTitleMenu() {
-  const { activeSession, status } = useCompanion();
-  const title = activeSession?.model || "Odysseus";
+  const { activeSession, selectedModel, status } = useCompanion();
+  const title = activeSession?.model || selectedModel || "Odysseus";
   const subtitle = activeSession?.name || (status === "paired" ? "Companion" : "Pair");
 
   return (

@@ -19,14 +19,14 @@ import { useColorScheme } from "react-native";
 import { useDrawer } from "./drawer-content";
 
 function HeaderTitleMenu() {
-  const { activeSession, status } = useCompanion();
+  const { activeSession, selectedModel, status } = useCompanion();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const headerFg = isDark ? "#fff" : "#000";
   const headerFgMuted = isDark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.5)";
 
-  const title = activeSession?.model || "Odysseus";
+  const title = activeSession?.model || selectedModel || "Odysseus";
   const subtitle = activeSession?.name || (status === "paired" ? "Companion" : "Pair");
   return (
     <Host
@@ -70,6 +70,11 @@ function HeaderTitleMenu() {
             systemImage="terminal"
             label="Commands"
             onPress={() => router.navigate("/commands")}
+          />
+          <Button
+            systemImage="wrench.and.screwdriver"
+            label="Tools"
+            onPress={() => router.navigate("/tools" as any)}
           />
         </Section>
       </Menu>

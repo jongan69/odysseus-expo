@@ -346,6 +346,7 @@ export class OdysseusClient {
       useWeb?: boolean;
       useResearch?: boolean;
       allowWebSearch?: boolean;
+      allowBash?: boolean;
       planMode?: boolean;
       noMemory?: boolean;
     },
@@ -358,6 +359,7 @@ export class OdysseusClient {
     appendFormField(formData, "use_web", input.useWeb);
     appendFormField(formData, "use_research", input.useResearch);
     appendFormField(formData, "allow_web_search", input.allowWebSearch);
+    appendFormField(formData, "allow_bash", input.allowBash);
     appendFormField(formData, "plan_mode", input.planMode);
     appendFormField(formData, "no_memory", input.noMemory);
 

@@ -20,11 +20,17 @@ export function PromptInput({ children }: { children: ReactNode }) {
 
   // Separate action buttons from body (which contains textarea + submit)
   const actions: ReactNode[] = [];
+  const accessories: ReactNode[] = [];
   let body: ReactNode = null;
 
   Children.forEach(children, (child) => {
     if (isValidElement(child) && (child.type as any) === PromptInputAction) {
       actions.push(child);
+    } else if (
+      isValidElement(child) &&
+      (child.type as any) === PromptInputAccessory
+    ) {
+      accessories.push(child);
     } else if (
       isValidElement(child) &&
       (child.type as any) === PromptInputBody
@@ -40,6 +46,11 @@ export function PromptInput({ children }: { children: ReactNode }) {
     >
       <View className="flex w-full flex-col rounded-2xl border border-border/30 bg-card/70 shadow-composer transition-shadow duration-300 focus-within:shadow-composer-focus">
         {body}
+        {accessories.length > 0 && (
+          <View className="border-t border-border/30 px-3 py-2">
+            {accessories}
+          </View>
+        )}
         {actions.length > 0 && (
           <View className="absolute bottom-3 left-3 flex flex-row items-center gap-1">
             {actions}
@@ -48,6 +59,10 @@ export function PromptInput({ children }: { children: ReactNode }) {
       </View>
     </View>
   );
+}
+
+export function PromptInputAccessory({ children }: { children: ReactNode }) {
+  return <View className="w-full">{children}</View>;
 }
 
 /**

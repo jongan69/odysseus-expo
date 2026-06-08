@@ -1,7 +1,9 @@
 import { ChatMarkdown } from "@/components/markdown";
+import { splitThinking } from "@/utils/thinking";
 import type { ReactNode } from "react";
-import { Text } from "react-native";
+import { Text, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { ThinkingBlock } from "./thinking-block";
 
 /**
  * Wrapper for a single chat message. Styles automatically based on the sender
@@ -52,5 +54,13 @@ export function Message({
  * with appropriate defaults.
  */
 export function MessageResponse({ children }: { children: string }) {
-  return <ChatMarkdown>{children || "..."}</ChatMarkdown>;
+  const { answer, thinking } = splitThinking(children || "");
+  const visibleAnswer = answer || (!thinking ? children : "");
+
+  return (
+    <View className="gap-2">
+      <ThinkingBlock thinking={thinking} defaultOpen={!visibleAnswer.trim()} />
+      <ChatMarkdown>{visibleAnswer || "..."}</ChatMarkdown>
+    </View>
+  );
 }

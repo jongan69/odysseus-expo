@@ -173,6 +173,15 @@ function StackLayout() {
       />
 
       <Stack.Screen
+        name="tools"
+        options={{
+          title: "Tools",
+          animation: "none",
+          headerLargeTitleShadowVisible: false,
+        }}
+      />
+
+      <Stack.Screen
         name="attachments"
         options={{
           title: "Add to chat",

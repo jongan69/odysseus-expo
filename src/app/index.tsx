@@ -7,6 +7,7 @@ import {
   MessageResponse,
   PromptInput,
   PromptInputAction,
+  PromptInputAccessory,
   PromptInputBody,
   PromptInputSubmit,
   PromptInputTextarea,
@@ -14,6 +15,11 @@ import {
   createStreamingStore,
   type ChatMessage,
 } from "@/components/chat";
+import {
+  DEFAULT_CHAT_OPTIONS,
+  ToolToggles,
+  type ChatOptions,
+} from "@/components/chat/tool-toggles";
 import { Icon } from "@/components/icon";
 import { MainHeader } from "@/components/main-header";
 import { PairingScreen } from "@/screens/PairingScreen";
@@ -41,6 +47,7 @@ function useOdysseusChat() {
   const [error, setError] = useState<Error | null>(null);
   const [canResume, setCanResume] = useState(false);
   const [streamStatusLabel, setStreamStatusLabel] = useState<string>();
+  const [options, setOptions] = useState<ChatOptions>(DEFAULT_CHAT_OPTIONS);
   const streamingStore = useMemo(() => createStreamingStore(), []);
   const abortRef = useRef<AbortController | null>(null);
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -148,7 +155,11 @@ function useOdysseusChat() {
             {
               sessionId,
               message: message ?? "",
-              mode: "chat",
+              mode: options.agent ? "agent" : "chat",
+              useWeb: options.web,
+              useResearch: options.research,
+              allowWebSearch: options.web,
+              allowBash: options.terminal,
               signal: controller.signal,
             },
             onEvent,
@@ -175,7 +186,7 @@ function useOdysseusChat() {
         setIsGenerating(false);
       }
     },
-    [client, finishAssistantMessage, flushStreaming, streamingStore],
+    [client, finishAssistantMessage, flushStreaming, options, streamingStore],
   );
 
   const onSend = useCallback(async () => {
@@ -248,6 +259,8 @@ function useOdysseusChat() {
     onResume,
     canResume,
     streamStatusLabel,
+    options,
+    setOptions,
     streamingStore,
     error,
     ready: status === "paired" && canChat,
@@ -258,6 +271,11 @@ export default function ChatScreen() {
   const companion = useCompanion();
   const chat = useOdysseusChat();
   const { isGenerating, streamingStore } = chat;
+  const terminalAvailable = Boolean(
+    companion.canUseCommands &&
+      (companion.manifest?.features?.signed_commands?.raw_shell_enabled ||
+        companion.manifest?.features?.remote_development?.raw_shell_enabled),
+  );
 
   const renderMessage = useCallback(
     ({ item }: { item: ChatMessage }) => {
@@ -337,6 +355,24 @@ export default function ChatScreen() {
               <PromptInputTextarea />
               <PromptInputSubmit />
             </PromptInputBody>
+            <PromptInputAccessory>
+              <View className="flex-row flex-wrap items-center justify-between gap-2">
+                <ToolToggles
+                  value={chat.options}
+                  onChange={chat.setOptions}
+                  disabled={chat.isGenerating}
+                  terminalAvailable={terminalAvailable}
+                />
+                {chat.streamStatusLabel && (
+                  <Text
+                    numberOfLines={1}
+                    className="min-w-0 flex-1 text-right text-xs text-muted-foreground"
+                  >
+                    {chat.streamStatusLabel}
+                  </Text>
+                )}
+              </View>
+            </PromptInputAccessory>
           </PromptInput>
         </Conversation>
       </ChatProvider>

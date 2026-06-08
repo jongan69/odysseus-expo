@@ -17,6 +17,7 @@ export { Message, MessageResponse } from "./message";
 export {
   PromptInput,
   PromptInputAction,
+  PromptInputAccessory,
   PromptInputBody,
   PromptInputSubmit,
   PromptInputTextarea,

@@ -35,6 +35,8 @@ type StoredPairing = {
   baseUrl: string;
   protocol: "http" | "https";
   activeSessionId?: string;
+  selectedEndpointId?: string;
+  selectedModel?: string;
 };
 
 type CompanionStatus = "loading" | "unpaired" | "paired" | "error";
@@ -49,6 +51,9 @@ type CompanionContextValue = {
   sessions: CompanionSession[];
   activeSessionId?: string;
   activeSession?: CompanionSession;
+  selectedEndpointId?: string;
+  selectedModel?: string;
+  selectedEndpoint?: CompanionEndpoint;
   commandKey?: CommandKeyPair;
   commandCatalog: CommandDefinition[];
   tokenScopes: string[];
@@ -66,6 +71,7 @@ type CompanionContextValue = {
     rag?: boolean;
   }) => Promise<CompanionSession>;
   setActiveSessionId: (sessionId: string) => Promise<void>;
+  setSelectedModel: (endpointId?: string, model?: string) => Promise<void>;
   ensureCommandKeyRegistered: () => Promise<CommandKeyPair>;
   revokeCommandKey: () => Promise<void>;
   sendCommand: (
@@ -197,6 +203,14 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     }
   }, [client, manifest, refresh, status]);
 
+  useEffect(() => {
+    if (!client || !stored) return;
+    const interval = setInterval(() => {
+      void refresh();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [client, refresh, stored]);
+
   const persistStored = useCallback(async (nextStored: StoredPairing) => {
     setStored(nextStored);
     await setSecureItem(PAIRING_STORAGE_KEY, JSON.stringify(nextStored));
@@ -217,6 +231,18 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     [persistStored],
   );
 
+  const selectedEndpoint = useMemo(
+    () =>
+      endpoints.find((endpoint) => endpoint.endpoint_id === stored?.selectedEndpointId) ??
+      endpoints[0],
+    [endpoints, stored?.selectedEndpointId],
+  );
+  const selectedModel = useMemo(() => {
+    const preferred = stored?.selectedModel;
+    if (preferred && selectedEndpoint?.models?.includes(preferred)) return preferred;
+    return selectedEndpoint?.models?.[0];
+  }, [selectedEndpoint, stored?.selectedModel]);
+
   const createSession = useCallback(
     async (input: {
       name?: string;
@@ -225,20 +251,43 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       rag?: boolean;
     }) => {
       if (!client || !stored) throw new Error("Pair with Odysseus first");
-      const result = await client.createSession(input);
+      const endpointId = input.endpointId ?? selectedEndpoint?.endpoint_id;
+      const model = input.model ?? selectedModel;
+      const result = await client.createSession({
+        ...input,
+        endpointId,
+        model,
+      });
       const nextSessions = [result.session, ...sessions.filter((s) => s.id !== result.session.id)];
       setSessions(nextSessions);
-      const nextStored = { ...stored, activeSessionId: result.session.id };
+      const nextStored = {
+        ...stored,
+        activeSessionId: result.session.id,
+        selectedEndpointId: endpointId ?? stored.selectedEndpointId,
+        selectedModel: model ?? stored.selectedModel,
+      };
       await persistStored(nextStored);
       return result.session;
     },
-    [client, persistStored, sessions, stored],
+    [client, persistStored, selectedEndpoint?.endpoint_id, selectedModel, sessions, stored],
   );
 
   const setActiveSessionId = useCallback(
     async (sessionId: string) => {
       if (!stored) return;
       await persistStored({ ...stored, activeSessionId: sessionId });
+    },
+    [persistStored, stored],
+  );
+
+  const setSelectedModel = useCallback(
+    async (endpointId?: string, model?: string) => {
+      if (!stored) return;
+      await persistStored({
+        ...stored,
+        selectedEndpointId: endpointId,
+        selectedModel: model,
+      });
     },
     [persistStored, stored],
   );
@@ -319,6 +368,9 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       sessions,
       activeSessionId: stored?.activeSessionId,
       activeSession,
+      selectedEndpointId: stored?.selectedEndpointId,
+      selectedModel,
+      selectedEndpoint,
       commandKey,
       commandCatalog,
       tokenScopes,
@@ -331,6 +383,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       refresh,
       createSession,
       setActiveSessionId,
+      setSelectedModel,
       ensureCommandKeyRegistered,
       revokeCommandKey,
       sendCommand,
@@ -352,9 +405,12 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       pairFromPayload,
       refresh,
       revokeCommandKey,
+      selectedEndpoint,
+      selectedModel,
       sendCommand,
       sessions,
       setActiveSessionId,
+      setSelectedModel,
       status,
       stored,
       tokenScopes,
