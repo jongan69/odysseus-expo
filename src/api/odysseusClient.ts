@@ -32,6 +32,12 @@ export type CompanionSession = {
   message_count: number;
 };
 
+export type CompanionHistoryMessage = {
+  role?: string;
+  content?: unknown;
+  metadata?: Record<string, unknown>;
+};
+
 export type CommandDefinition = {
   name: string;
   description?: string;
@@ -335,6 +341,14 @@ export class OdysseusClient {
           rag: input.rag ?? false,
         }),
       },
+    );
+  }
+
+  history(sessionId: string) {
+    return requestJson<{ history: CompanionHistoryMessage[] }>(
+      this.baseUrl,
+      `/api/history/${encodeURIComponent(sessionId)}`,
+      this.token,
     );
   }
 

@@ -18,6 +18,10 @@ import {
   getSecureItem,
   setSecureItem,
 } from "@/storage/secureCompanionStorage";
+import {
+  chatSessionStorageScope,
+  deleteChatSessionScope,
+} from "@/storage/chatSessionStorage";
 import React, {
   createContext,
   use,
@@ -350,6 +354,12 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
   );
 
   const forgetAll = useCallback(async () => {
+    const currentScope = stored
+      ? chatSessionStorageScope({
+          baseUrl: stored.baseUrl,
+          token: stored.pairing.token,
+        })
+      : undefined;
     try {
       if (client && commandKey?.registered) {
         await client.revokeKey(commandKey.keyId);
@@ -360,6 +370,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     await Promise.all([
       deleteSecureItem(PAIRING_STORAGE_KEY),
       deleteSecureItem(COMMAND_KEY_STORAGE_KEY),
+      currentScope ? deleteChatSessionScope(currentScope) : Promise.resolve(),
     ]);
     setStored(null);
     setManifest(undefined);
@@ -368,7 +379,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     setCommandKey(undefined);
     setError(undefined);
     setStatus("unpaired");
-  }, [client, commandKey]);
+  }, [client, commandKey, stored]);
 
   const activeSession = sessions.find((session) => session.id === stored?.activeSessionId);
   const tokenScopes = useMemo(

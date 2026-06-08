@@ -21,9 +21,15 @@ import {
   type ChatOptions,
 } from "@/components/chat/tool-toggles";
 import { Icon } from "@/components/icon";
+import type { CompanionHistoryMessage } from "@/api/odysseusClient";
 import { MainHeader } from "@/components/main-header";
 import { PairingScreen } from "@/screens/PairingScreen";
 import { useCompanion } from "@/state/companion-store";
+import {
+  chatSessionStorageScope,
+  loadChatSessionMessages,
+  saveChatSessionMessages,
+} from "@/storage/chatSessionStorage";
 import * as Haptics from "expo-haptics";
 import { Link } from "expo-router";
 import { RefreshCw, Server } from "lucide-react-native";
@@ -32,18 +38,58 @@ import { ActivityIndicator, Text, View } from "react-native";
 
 const STREAMING_THROTTLE_MS = 32;
 
+function contentToText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((block) => {
+        if (typeof block === "string") return block;
+        if (block && typeof block === "object" && "text" in block) {
+          return String((block as { text?: unknown }).text ?? "");
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (content === undefined || content === null) return "";
+  return String(content);
+}
+
+function historyMessageToChatMessage(
+  sessionId: string,
+  message: CompanionHistoryMessage,
+  index: number,
+): ChatMessage | undefined {
+  if (message.role !== "user" && message.role !== "assistant") return undefined;
+  return {
+    id: `${sessionId}-${index}-${message.role}`,
+    role: message.role,
+    content: contentToText(message.content),
+  };
+}
+
 function useOdysseusChat() {
   const {
     status,
+    baseUrl,
+    pairing,
     client,
     activeSession,
     activeSessionId,
     createSession,
     canChat,
+    refresh,
   } = useCompanion();
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messagesState, setMessagesState] = useState<{
+    scope: string;
+    messagesBySession: Record<string, ChatMessage[]>;
+  }>(() => ({ scope: "", messagesBySession: {} }));
+  const messagesBySessionRef = useRef<Record<string, ChatMessage[]>>({});
+  const storageScopeRef = useRef("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingSessionId, setGeneratingSessionId] = useState<string>();
   const [error, setError] = useState<Error | null>(null);
   const [canResume, setCanResume] = useState(false);
   const [streamStatusLabel, setStreamStatusLabel] = useState<string>();
@@ -51,6 +97,17 @@ function useOdysseusChat() {
   const streamingStore = useMemo(() => createStreamingStore(), []);
   const abortRef = useRef<AbortController | null>(null);
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const storageScope = useMemo(
+    () =>
+      chatSessionStorageScope({
+        baseUrl,
+        token: pairing?.token,
+      }),
+    [baseUrl, pairing?.token],
+  );
+  const messagesBySession =
+    messagesState.scope === storageScope ? messagesState.messagesBySession : {};
+  const messages = activeSessionId ? (messagesBySession[activeSessionId] ?? []) : [];
 
   useEffect(() => {
     return () => {
@@ -58,6 +115,104 @@ function useOdysseusChat() {
       if (throttleRef.current) clearTimeout(throttleRef.current);
     };
   }, []);
+
+  const replaceSessionMessages = useCallback(
+    (sessionId: string, nextMessages: ChatMessage[]) => {
+      if (storageScopeRef.current !== storageScope) {
+        storageScopeRef.current = storageScope;
+        messagesBySessionRef.current = {};
+      }
+      const nextState = {
+        ...messagesBySessionRef.current,
+        [sessionId]: nextMessages,
+      };
+      messagesBySessionRef.current = nextState;
+      setMessagesState({
+        scope: storageScope,
+        messagesBySession: nextState,
+      });
+    },
+    [storageScope],
+  );
+
+  const persistSessionMessages = useCallback(
+    (
+      sessionId: string,
+      updater:
+        | ChatMessage[]
+        | ((currentMessages: ChatMessage[]) => ChatMessage[]),
+    ) => {
+      if (storageScopeRef.current !== storageScope) {
+        storageScopeRef.current = storageScope;
+        messagesBySessionRef.current = {};
+      }
+      const currentMessages = messagesBySessionRef.current[sessionId] ?? [];
+      const nextMessages =
+        typeof updater === "function" ? updater(currentMessages) : updater;
+      replaceSessionMessages(sessionId, nextMessages);
+
+      void saveChatSessionMessages(storageScope, sessionId, nextMessages).catch(
+        (err: unknown) => {
+          setError(
+            err instanceof Error
+              ? err
+              : new Error("Unable to save chat session state"),
+          );
+        },
+      );
+    },
+    [replaceSessionMessages, storageScope],
+  );
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const sessionId = activeSessionId;
+    let cancelled = false;
+
+    async function hydrateSession() {
+      const localMessages = await loadChatSessionMessages(
+        storageScope,
+        sessionId,
+      );
+      if (cancelled) return;
+      if (localMessages.length) {
+        const existingMessages = messagesBySessionRef.current[sessionId] ?? [];
+        if (!existingMessages.length) {
+          replaceSessionMessages(sessionId, localMessages);
+        }
+      }
+
+      if (!client) return;
+      try {
+        const response = await client.history(sessionId);
+        if (cancelled) return;
+        const historyMessages = response.history
+          .map((message, index) =>
+            historyMessageToChatMessage(sessionId, message, index),
+          )
+          .filter((message): message is ChatMessage => Boolean(message));
+
+        const latestMessages = messagesBySessionRef.current[sessionId] ?? [];
+        if (latestMessages.length > localMessages.length) return;
+
+        if (historyMessages.length || !latestMessages.length) {
+          replaceSessionMessages(sessionId, historyMessages);
+          await saveChatSessionMessages(
+            storageScope,
+            sessionId,
+            historyMessages,
+          );
+        }
+      } catch {
+        // Local persistence is the fallback when the companion history endpoint is unavailable.
+      }
+    }
+
+    void hydrateSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, client, replaceSessionMessages, storageScope]);
 
   const flushStreaming = useCallback(
     (text: string) => {
@@ -71,19 +226,19 @@ function useOdysseusChat() {
   );
 
   const finishAssistantMessage = useCallback(
-    (assistantId: string, content: string) => {
+    (sessionId: string, assistantId: string, content: string) => {
       if (throttleRef.current) {
         clearTimeout(throttleRef.current);
         throttleRef.current = null;
       }
       streamingStore.set("");
-      setMessages((current) =>
+      persistSessionMessages(sessionId, (current) =>
         current.map((message) =>
           message.id === assistantId ? { ...message, content } : message,
         ),
       );
     },
-    [streamingStore],
+    [persistSessionMessages, streamingStore],
   );
 
   const runStream = useCallback(
@@ -105,6 +260,7 @@ function useOdysseusChat() {
       let modelLabel = "";
 
       setIsGenerating(true);
+      setGeneratingSessionId(sessionId);
       setCanResume(false);
       setError(null);
       setStreamStatusLabel(resume ? "Resuming" : "Streaming");
@@ -165,7 +321,7 @@ function useOdysseusChat() {
             onEvent,
           );
         }
-        finishAssistantMessage(assistantId, streamed || "Done.");
+        finishAssistantMessage(sessionId, assistantId, streamed || "Done.");
         setStreamStatusLabel(modelLabel || "Done");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (err) {
@@ -174,19 +330,29 @@ function useOdysseusChat() {
         if (nextError.name !== "AbortError") {
           setError(nextError);
           finishAssistantMessage(
+            sessionId,
             assistantId,
             streamed || `Error: ${nextError.message}`,
           );
         } else {
-          finishAssistantMessage(assistantId, streamed || "Stopped.");
+          finishAssistantMessage(sessionId, assistantId, streamed || "Stopped.");
         }
         setCanResume(true);
       } finally {
         abortRef.current = null;
+        setGeneratingSessionId(undefined);
         setIsGenerating(false);
+        void refresh();
       }
     },
-    [client, finishAssistantMessage, flushStreaming, options, streamingStore],
+    [
+      client,
+      finishAssistantMessage,
+      flushStreaming,
+      options,
+      refresh,
+      streamingStore,
+    ],
   );
 
   const onSend = useCallback(async () => {
@@ -205,21 +371,32 @@ function useOdysseusChat() {
       role: "assistant",
       content: "",
     };
-
-    setMessages((current) => [...current, userMessage, assistantMessage]);
-    setInput("");
+    let sessionId: string | undefined;
 
     try {
       const session = activeSession ?? (await createSession({ name: "Mobile companion" }));
+      sessionId = session.id;
+      persistSessionMessages(sessionId, (current) => [
+        ...current,
+        userMessage,
+        assistantMessage,
+      ]);
+      setInput("");
       await runStream({
         assistantId,
-        sessionId: session.id,
+        sessionId,
         message: text,
       });
     } catch (err) {
       const nextError = err instanceof Error ? err : new Error("Unable to send");
       setError(nextError);
-      finishAssistantMessage(assistantId, `Error: ${nextError.message}`);
+      if (sessionId) {
+        finishAssistantMessage(
+          sessionId,
+          assistantId,
+          `Error: ${nextError.message}`,
+        );
+      }
     }
   }, [
     activeSession,
@@ -228,6 +405,7 @@ function useOdysseusChat() {
     finishAssistantMessage,
     input,
     isGenerating,
+    persistSessionMessages,
     runStream,
   ]);
 
@@ -242,12 +420,12 @@ function useOdysseusChat() {
   const onResume = useCallback(async () => {
     if (!activeSessionId || isGenerating) return;
     const assistantId = `${Date.now()}-assistant-resume`;
-    setMessages((current) => [
+    persistSessionMessages(activeSessionId, (current) => [
       ...current,
       { id: assistantId, role: "assistant", content: "" },
     ]);
     await runStream({ assistantId, sessionId: activeSessionId, resume: true });
-  }, [activeSessionId, isGenerating, runStream]);
+  }, [activeSessionId, isGenerating, persistSessionMessages, runStream]);
 
   return {
     messages,
@@ -258,6 +436,7 @@ function useOdysseusChat() {
     onStop,
     onResume,
     canResume,
+    generatingSessionId,
     streamStatusLabel,
     options,
     setOptions,
@@ -271,6 +450,8 @@ export default function ChatScreen() {
   const companion = useCompanion();
   const chat = useOdysseusChat();
   const { isGenerating, streamingStore } = chat;
+  const activeSessionIsGenerating =
+    isGenerating && chat.generatingSessionId === companion.activeSessionId;
   const terminalAvailable = Boolean(
     companion.canUseCommands &&
       (companion.manifest?.features?.signed_commands?.raw_shell_enabled ||
@@ -283,7 +464,7 @@ export default function ChatScreen() {
         return <Message from="user">{item.content}</Message>;
       }
 
-      const isStreaming = isGenerating && item.content === "";
+      const isStreaming = activeSessionIsGenerating && item.content === "";
       return (
         <Message from="assistant">
           {isStreaming ? (
@@ -294,7 +475,7 @@ export default function ChatScreen() {
         </Message>
       );
     },
-    [isGenerating, streamingStore],
+    [activeSessionIsGenerating, streamingStore],
   );
 
   if (companion.status === "loading") {
