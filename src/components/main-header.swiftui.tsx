@@ -1,4 +1,4 @@
-import { useModel } from "@/components/model-context";
+import { useCompanion } from "@/state/companion-store";
 import {
   Button,
   Host,
@@ -7,7 +7,6 @@ import {
   Section,
   Image as SUIImage,
   Text as SUIText,
-  Toggle,
   VStack,
 } from "@expo/ui/swift-ui";
 import {
@@ -15,20 +14,20 @@ import {
   font,
   foregroundStyle,
 } from "@expo/ui/swift-ui/modifiers";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { useColorScheme } from "react-native";
 import { useDrawer } from "./drawer-content";
 
 function HeaderTitleMenu() {
-  const { models, selectedModel, extendedThinking, setExtendedThinking } =
-    useModel();
+  const { activeSession, status } = useCompanion();
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const headerFg = isDark ? "#fff" : "#000";
   const headerFgMuted = isDark ? "rgba(255,255,255,0.7)" : "rgba(0,0,0,0.5)";
 
-  const selected = models.find((m) => m.id === selectedModel);
-  const subtitle = extendedThinking ? "Extended" : undefined;
+  const title = activeSession?.model || "Odysseus";
+  const subtitle = activeSession?.name || (status === "paired" ? "Companion" : "Pair");
   return (
     <Host
       style={{
@@ -46,7 +45,7 @@ function HeaderTitleMenu() {
                   font({ weight: "semibold", size: 17 }),
                 ]}
               >
-                {selected?.label ?? "Model"}
+                {title}
               </SUIText>
               <SUIImage systemName="chevron.down" size={10} color={headerFg} />
             </HStack>
@@ -61,25 +60,18 @@ function HeaderTitleMenu() {
         }
         modifiers={[controlSize("regular")]}
       >
-        <Section title="Existing tools for iOS app tech stack detection">
+        <Section title="Odysseus">
           <Button
-            systemImage="archivebox"
-            label="Add to project"
-            onPress={() => {}}
+            systemImage="server.rack"
+            label="Session"
+            onPress={() => router.navigate("/session")}
           />
-          <Button systemImage="star" label="Star" onPress={() => {}} />
-          <Button systemImage="pencil" label="Rename" onPress={() => {}} />
           <Button
-            systemImage="trash"
-            label="Delete"
-            role="destructive"
-            onPress={() => {}}
+            systemImage="terminal"
+            label="Commands"
+            onPress={() => router.navigate("/commands")}
           />
         </Section>
-        <Toggle isOn={extendedThinking} onIsOnChange={setExtendedThinking}>
-          <SUIText>Extended thinking</SUIText>
-          <SUIText>Think longer for complex tasks</SUIText>
-        </Toggle>
       </Menu>
     </Host>
   );
@@ -87,6 +79,7 @@ function HeaderTitleMenu() {
 
 export function MainHeader() {
   const { openDrawer } = useDrawer();
+  const router = useRouter();
   return (
     <>
       <Stack.Screen.Title asChild>
@@ -96,7 +89,10 @@ export function MainHeader() {
         <Stack.Toolbar.Button icon="list.bullet" onPress={openDrawer} />
       </Stack.Toolbar>
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Button icon="eyeglasses" />
+        <Stack.Toolbar.Button
+          icon="terminal"
+          onPress={() => router.navigate("/commands")}
+        />
       </Stack.Toolbar>
     </>
   );

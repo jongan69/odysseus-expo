@@ -27,7 +27,7 @@ export default function SettingsLayout() {
       <Stack.Screen
         name="settings"
         options={{
-          title: "Settings",
+          title: "Odysseus",
           headerLeft: () => null,
         }}
       >
@@ -65,7 +65,7 @@ export default function SettingsLayout() {
       <Stack.Screen
         name="capabilities"
         options={{
-          title: "Capabilities",
+          title: "Commands",
         }}
       />
     </Stack>

@@ -135,7 +135,7 @@ export function PromptInputBody({ children }: { children: ReactNode }) {
  * input value from `ChatContext`.
  */
 export function PromptInputTextarea({
-  placeholder = "Chat with Agent...",
+  placeholder = "Chat with Odysseus...",
   maxLength = 1000,
 }: {
   placeholder?: string;
@@ -154,8 +154,6 @@ export function PromptInputTextarea({
     <TextInput
       ref={inputRef}
       nativeID="composer"
-      cursorColorClassName="tint-foreground"
-      selectionColorClassName="tint-foreground"
       style={{ fontSize: 16 }}
       className="flex-1 pl-4 pr-2 py-3 text-foreground max-h-25"
       value={input}
@@ -172,28 +170,32 @@ export function PromptInputTextarea({
  * is generating. Reads state from `ChatContext`.
  */
 export function PromptInputSubmit() {
-  const { input, isGenerating, onSend } = useChatContext();
+  const { input, isGenerating, onSend, onStop } = useChatContext();
   const disabled = !input.trim() || isGenerating;
 
   return (
     <Pressable
-      style={({ pressed }) => ({
-        width: 34,
-        height: 34,
-        borderRadius: 17,
-        borderCurve: "continuous",
-        justifyContent: "center",
-        alignItems: "center",
-        opacity: pressed ? 0.7 : 1,
-        margin: 5,
-      })}
-      className={disabled ? "bg-secondary" : "bg-foreground"}
-      onPress={onSend}
-      disabled={disabled}
+      className={cn(
+        "w-[34px] h-[34px] rounded-full m-[5px] items-center justify-center active:opacity-70",
+        disabled && !isGenerating ? "bg-secondary" : "bg-foreground",
+      )}
+      onPress={isGenerating ? onStop : onSend}
+      disabled={disabled && !isGenerating}
     >
       {isGenerating ? (
         <Animated.View entering={FadeIn} exiting={FadeOut}>
-          <ActivityIndicator size="small" colorClassName="tint-foreground" className="text-foreground" />
+          {onStop ? (
+            <SymbolImage
+              name="stop.fill"
+              size={13}
+              sfEffect="scale/down"
+              className="font-semibold text-background"
+            />
+          ) : (
+            <ActivityIndicator
+              size="small"
+            />
+          )}
         </Animated.View>
       ) : (
           <SymbolImage

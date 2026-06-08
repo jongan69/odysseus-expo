@@ -23,7 +23,6 @@ export default function ProfileScreen() {
         value={fullName}
         onChangeText={setFullName}
         className="bg-muted rounded-xl px-4 py-3 text-[17px] text-foreground border-continuous"
-        placeholderTextColor="#999"
       />
 
       {/* Nickname */}
@@ -34,7 +33,6 @@ export default function ProfileScreen() {
         value={nickname}
         onChangeText={setNickname}
         className="bg-muted rounded-xl px-4 py-3 text-[17px] text-foreground border-continuous"
-        placeholderTextColor="#999"
       />
 
       {/* Update Profile Button */}
@@ -59,10 +57,9 @@ export default function ProfileScreen() {
         multiline
         className="bg-muted rounded-xl px-4 py-3 text-[15px] text-foreground leading-relaxed min-h-[140px] border-continuous"
         style={{ textAlignVertical: "top" }}
-        placeholderTextColor="#999"
       />
       <Text className="text-[13px] text-muted-foreground mt-2 leading-relaxed">
-        Your preferences will apply to all conversations, within Agent's
+        Your preferences will apply to all conversations, within Agent&apos;s
         guidelines.
       </Text>
 

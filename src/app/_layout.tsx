@@ -12,6 +12,8 @@ import { StatusBar } from "expo-status-bar";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { ModelProvider } from "@/components/model-context";
+import { PrivacyShield } from "@/components/privacy-shield";
+import { CompanionProvider } from "@/state/companion-store";
 import {
   DarkTheme,
   DefaultTheme,
@@ -68,11 +70,14 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <KeyboardProvider>
-        <ModelProvider models={ALL_MODELS}>
-          <DrawerProvider>
-            <RootDrawer />
-          </DrawerProvider>
-        </ModelProvider>
+        <CompanionProvider>
+          <ModelProvider models={ALL_MODELS}>
+            <DrawerProvider>
+              <RootDrawer />
+            </DrawerProvider>
+          </ModelProvider>
+          <PrivacyShield />
+        </CompanionProvider>
         {process.env.EXPO_OS !== "ios" && <StatusBar style="auto" />}
       </KeyboardProvider>
     </ThemeProvider>
@@ -138,10 +143,32 @@ function StackLayout() {
       <Stack.Screen
         name="chats"
         options={{
-          title: "Chats",
+          title: "Sessions",
           animation: "none",
           headerLargeTitleShadowVisible: false,
           gestureEnabled: false,
+        }}
+      />
+
+      <Stack.Screen
+        name="session"
+        options={{
+          title: "Session",
+          presentation: "formSheet",
+          sheetAllowedDetents: "fitToContents",
+          sheetCornerRadius: IS_ANDROID ? 28 : undefined,
+          sheetGrabberVisible: true,
+          headerTransparent: GLASS,
+          headerLargeTitleShadowVisible: false,
+        }}
+      />
+
+      <Stack.Screen
+        name="commands"
+        options={{
+          title: "Commands",
+          animation: "none",
+          headerLargeTitleShadowVisible: false,
         }}
       />
 
@@ -162,7 +189,7 @@ function StackLayout() {
       <Stack.Screen
         name="model-picker"
         options={{
-          title: "Model",
+          title: "Session",
           presentation: "formSheet",
           sheetAllowedDetents: "fitToContents",
           sheetCornerRadius: IS_ANDROID ? 28 : undefined,

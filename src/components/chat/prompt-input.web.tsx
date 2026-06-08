@@ -1,9 +1,8 @@
-import { ArrowUp, Paperclip } from "lucide-react";
+import { ArrowUp, Square } from "lucide-react";
 import { Children, type ReactNode, isValidElement } from "react";
 import {
   ActivityIndicator,
   Pressable,
-  Text,
   TextInput,
   View,
 } from "react-native";
@@ -41,6 +40,11 @@ export function PromptInput({ children }: { children: ReactNode }) {
     >
       <View className="flex w-full flex-col rounded-2xl border border-border/30 bg-card/70 shadow-composer transition-shadow duration-300 focus-within:shadow-composer-focus">
         {body}
+        {actions.length > 0 && (
+          <View className="absolute bottom-3 left-3 flex flex-row items-center gap-1">
+            {actions}
+          </View>
+        )}
       </View>
     </View>
   );
@@ -89,16 +93,7 @@ export function PromptInputBody({ children }: { children: ReactNode }) {
       {textarea}
       {/* Footer row: tools on left, submit on right */}
       <View className="flex flex-row items-center justify-between px-3 pb-3">
-        <View className="flex flex-row items-center gap-1">
-          {/* Attachments button */}
-          <Pressable className="flex h-7 w-7 items-center justify-center rounded-lg border border-border/40 transition-colors hover:bg-accent">
-            <Paperclip size={14} className="text-muted-foreground" />
-          </Pressable>
-          {/* Model selector mock */}
-          <Pressable className="flex h-7 flex-row items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-accent">
-            <Text className="text-[12px] text-muted-foreground">Opus</Text>
-          </Pressable>
-        </View>
+        <View className="h-7 min-w-20" />
         {submit}
       </View>
     </View>
@@ -110,7 +105,7 @@ export function PromptInputBody({ children }: { children: ReactNode }) {
  * resize: none removes the browser resize handle.
  */
 export function PromptInputTextarea({
-  placeholder = "Chat with Agent...",
+  placeholder = "Chat with Odysseus...",
   maxLength = 1000,
 }: {
   placeholder?: string;
@@ -126,7 +121,6 @@ export function PromptInputTextarea({
       value={input}
       onChangeText={setInput}
       placeholder={placeholder}
-      placeholderTextColorClassName="tint-muted-foreground"
       multiline
       maxLength={maxLength}
       onKeyPress={(e) => {
@@ -146,21 +140,29 @@ export function PromptInputTextarea({
  * Submit button matching Vercel chatbot's send/stop button.
  */
 export function PromptInputSubmit() {
-  const { input, isGenerating, onSend } = useChatContext();
+  const { input, isGenerating, onSend, onStop } = useChatContext();
   const disabled = !input.trim() || isGenerating;
 
   return (
     <Pressable
-      onPress={onSend}
-      disabled={disabled}
+      onPress={isGenerating ? onStop : onSend}
+      disabled={disabled && !isGenerating}
       className={`flex h-7 w-7 items-center justify-center rounded-xl transition-all duration-200 ${
-        disabled
+        disabled && !isGenerating
           ? "bg-muted cursor-not-allowed"
           : "bg-foreground hover:opacity-85 active:scale-95"
       }`}
     >
       {isGenerating ? (
-        <ActivityIndicator size="small" colorClassName="tint-background" />
+        onStop ? (
+          <Square
+            size={13}
+            strokeWidth={2.5}
+            className="fill-background text-background"
+          />
+        ) : (
+          <ActivityIndicator size="small" />
+        )
       ) : (
         <ArrowUp
           size={16}

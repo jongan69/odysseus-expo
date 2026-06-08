@@ -3,10 +3,10 @@ import "@/global.css";
 import { Icon } from "@/components/icon";
 import { TouchableGlass } from "@/components/touchable-glass";
 import { SafeAreaView } from "@/components/tw";
-import { MOCK_CHATS } from "@/utils/mock-chats";
+import { useCompanion } from "@/state/companion-store";
 import { cn } from "@/utils/tailwind";
 import type { Href } from "expo-router";
-import { Plus } from "lucide-react-native";
+import { KeyRound, MessageSquarePlus, Plus, Server, TerminalSquare } from "lucide-react-native";
 
 import React, { createContext, use, useCallback, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -42,16 +42,19 @@ export function useDrawer() {
 
 function DrawerNavItem({
   label,
+  icon,
   onPress,
 }: {
   label: string;
+  icon?: React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
   onPress: () => void;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      className="px-4 py-3 mx-2 rounded-[10px] active:bg-muted"
+      className="mx-2 flex-row items-center gap-3 rounded-[10px] px-4 py-3 active:bg-muted"
     >
+      {icon && <Icon icon={icon as any} className="h-4 w-4 text-foreground" />}
       <Text className="text-base text-foreground">
         {label}
       </Text>
@@ -98,6 +101,15 @@ export function DrawerContent({
   onNavigate: (path: Href) => void;
   onOpenModal: (path: Href) => void;
 }) {
+  const { sessions, activeSessionId, setActiveSessionId, manifest, status } =
+    useCompanion();
+  const initials = (manifest?.owner || "OD")
+    .split(/[\s._-]+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
   return (
     <SafeAreaView
       // NOTE: Some issue with uniwind that prevents updates for this component.
@@ -106,8 +118,11 @@ export function DrawerContent({
     >
       {/* Header */}
       <View className="px-4 pt-2 pb-3">
-        <Text className="text-[28px] font-bold text-foreground">
-          Chat
+        <Text className="font-mono text-[28px] font-bold text-foreground">
+          Odysseus
+        </Text>
+        <Text className="mt-1 text-xs text-muted-foreground">
+          {status === "paired" ? "Companion connected" : "Pair a device"}
         </Text>
       </View>
 
@@ -116,8 +131,23 @@ export function DrawerContent({
         className="flex-1"
         contentContainerStyle={{ paddingBottom: 8 }}
       >
-        <DrawerNavItem label="Chats" onPress={() => onNavigate("/chats")} />
         <DrawerNavItem
+          icon={MessageSquarePlus}
+          label="Chat"
+          onPress={() => onNavigate("/")}
+        />
+        <DrawerNavItem
+          icon={Server}
+          label="Sessions"
+          onPress={() => onNavigate("/chats")}
+        />
+        <DrawerNavItem
+          icon={TerminalSquare}
+          label="Commands"
+          onPress={() => onNavigate("/commands")}
+        />
+        <DrawerNavItem
+          icon={KeyRound}
           label="Settings"
           onPress={() => {
             if (process.env.EXPO_OS === "android") {
@@ -129,14 +159,17 @@ export function DrawerContent({
 
         {/* Recents */}
         <Text className="text-[13px] font-semibold text-muted-foreground px-6 pt-5 pb-1.5">
-          Recents
+          Sessions
         </Text>
-        {MOCK_CHATS.map((chat) => (
+        {sessions.map((session) => (
           <DrawerChatItem
-            key={chat.id}
-            title={chat.title}
-            active={chat.id === "1"}
-            onPress={() => onNavigate("/")}
+            key={session.id}
+            title={session.name || session.model || "Companion"}
+            active={session.id === activeSessionId}
+            onPress={() => {
+              setActiveSessionId(session.id);
+              onNavigate("/");
+            }}
           />
         ))}
       </ScrollView>
@@ -151,12 +184,12 @@ export function DrawerContent({
           className="rounded-full p-2 flex-row items-center gap-2.5 active:opacity-60"
         >
           <View className="w-8 h-8 rounded-full bg-muted items-center justify-center">
-            <Text className="text-[13px] font-semibold text-foreground">
-              EB
+            <Text className="font-mono text-[13px] font-semibold text-foreground">
+              {initials || "OD"}
             </Text>
           </View>
-          <Text className="text-sm text-foreground">
-            Evan Bacon
+          <Text className="text-sm text-foreground" numberOfLines={1}>
+            {manifest?.owner ?? "Odysseus"}
           </Text>
         </TouchableGlass>
         <View className="flex-1" />

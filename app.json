@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "chat",
-    "slug": "chat",
+    "name": "Odysseus Companion",
+    "slug": "odysseus-companion",
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "chat",
@@ -9,6 +9,7 @@
     "ios": {
       "infoPlist": {
         "UIViewControllerBasedStatusBarAppearance": true,
+        "NSCameraUsageDescription": "Scan the Odysseus companion pairing QR code.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -37,7 +38,8 @@
       "expo-image",
       "expo-web-browser",
       "expo-system-ui",
-      "expo-status-bar"
+      "expo-status-bar",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -16,201 +16,248 @@ import {
 } from "@/components/chat";
 import { Icon } from "@/components/icon";
 import { MainHeader } from "@/components/main-header";
-import { useChat } from "@ai-sdk/react";
+import { PairingScreen } from "@/screens/PairingScreen";
+import { useCompanion } from "@/state/companion-store";
 import * as Haptics from "expo-haptics";
 import { Link } from "expo-router";
-import { Plus } from "lucide-react-native";
+import { RefreshCw, Server } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Text, View } from "react-native";
 
-const USE_MOCK = process.env.EXPO_PUBLIC_MOCK_AI === "1";
-
-// Throttle interval for streaming UI updates (~30fps)
 const STREAMING_THROTTLE_MS = 32;
 
-const MOCK_RESPONSES = [
-  "That's a great question! Here's what I think:\n\nThe key insight is that **simplicity** often beats complexity. When you break down the problem into smaller pieces, the solution becomes much clearer.\n\n```javascript\nconst answer = problems\n  .map(simplify)\n  .reduce(combine, []);\n```\n\nHope that helps!",
-  "I'd be happy to help with that. Let me walk you through it step by step:\n\n1. **First**, identify the core requirements\n2. **Then**, design the interface\n3. **Finally**, implement and test\n\nThe most important thing is to start simple and iterate. You can always add more features later.",
-  "Interesting! Here's a quick overview:\n\n> The best code is the code you don't have to write.\n\nThat said, when you *do* need to write code, keep these principles in mind:\n\n- **Readability** over cleverness\n- **Composition** over inheritance\n- **Explicit** over implicit\n\nLet me know if you want me to dive deeper into any of these!",
-  "Sure thing! Here's a concise answer:\n\nThe approach I'd recommend is to use a **streaming architecture** where data flows through the system in real-time. This gives you:\n\n- Lower latency\n- Better resource utilization\n- Simpler error handling\n\n```python\nasync for chunk in stream:\n    process(chunk)\n```\n\nWant me to elaborate on any part?",
-];
-
-async function mockStreamResponse(
-  text: string,
-  onToken: (token: string) => void,
-  signal?: AbortSignal,
-) {
-  const words = text.split(/(?<=\s)/);
-  for (const word of words) {
-    if (signal?.aborted) return;
-    await new Promise((r) => setTimeout(r, 30 + Math.random() * 40));
-    onToken(word);
-  }
-}
-
-/** Extract text content from a UIMessage's parts array. */
-function getTextFromParts(
-  parts: Array<{ type: string; text?: string }>,
-): string {
-  return parts
-    .filter((p) => p.type === "text" && p.text)
-    .map((p) => p.text)
-    .join("");
-}
-
-function useAIChat() {
-  const [input, setInput] = useState("");
-  const streamingStore = useMemo(() => createStreamingStore(), []);
-  const prevStreamingTextRef = useRef("");
-
+function useOdysseusChat() {
   const {
-    messages: uiMessages,
-    sendMessage,
     status,
-    error,
-  } = useChat();
-
-  const isStreaming = status === "streaming";
-
-  // Map UIMessages to ChatMessages
-  const messages: ChatMessage[] = useMemo(() => {
-    return uiMessages.map((m) => ({
-      id: m.id,
-      role: m.role as "user" | "assistant",
-      content:
-        isStreaming &&
-        m.role === "assistant" &&
-        m === uiMessages[uiMessages.length - 1]
-          ? "" // Signal streaming — content comes from store
-          : getTextFromParts(m.parts as Array<{ type: string; text?: string }>),
-    }));
-  }, [uiMessages, isStreaming]);
-
-  // Sync streaming text to the store
-  useEffect(() => {
-    if (!isStreaming) {
-      if (prevStreamingTextRef.current) {
-        prevStreamingTextRef.current = "";
-        streamingStore.set("");
-      }
-      return;
-    }
-    const lastMessage = uiMessages[uiMessages.length - 1];
-    if (lastMessage?.role === "assistant") {
-      const text = getTextFromParts(
-        lastMessage.parts as Array<{ type: string; text?: string }>,
-      );
-      if (text !== prevStreamingTextRef.current) {
-        prevStreamingTextRef.current = text;
-        streamingStore.set(text);
-      }
-    }
-  }, [uiMessages, isStreaming, streamingStore]);
-
-  const onSend = useCallback(() => {
-    if (!input.trim() || isStreaming) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    sendMessage({ text: input });
-    setInput("");
-  }, [input, isStreaming, sendMessage]);
-
-  return {
-    messages,
-    input,
-    setInput,
-    isGenerating: isStreaming,
-    onSend,
-    streamingStore,
-    error: error ?? null,
-  };
-}
-
-function useMockChat() {
+    client,
+    activeSession,
+    activeSessionId,
+    createSession,
+    canChat,
+  } = useCompanion();
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [canResume, setCanResume] = useState(false);
+  const [streamStatusLabel, setStreamStatusLabel] = useState<string>();
   const streamingStore = useMemo(() => createStreamingStore(), []);
-  const streamingRef = useRef("");
+  const abortRef = useRef<AbortController | null>(null);
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mockIndexRef = useRef(0);
 
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || isGenerating) return;
-
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: "user",
-      content: input.trim(),
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      if (throttleRef.current) clearTimeout(throttleRef.current);
     };
+  }, []);
 
-    const assistantMessage: ChatMessage = {
-      id: (Date.now() + 1).toString(),
-      role: "assistant",
-      content: "",
-    };
+  const flushStreaming = useCallback(
+    (text: string) => {
+      if (throttleRef.current) return;
+      throttleRef.current = setTimeout(() => {
+        streamingStore.set(text);
+        throttleRef.current = null;
+      }, STREAMING_THROTTLE_MS);
+    },
+    [streamingStore],
+  );
 
-    const newMessages = [...messages, userMessage, assistantMessage];
-    setMessages(newMessages);
-    setInput("");
-    setIsGenerating(true);
-
-    streamingRef.current = "";
-    streamingStore.set("");
-
-    try {
-      const mockText =
-        MOCK_RESPONSES[mockIndexRef.current % MOCK_RESPONSES.length];
-      mockIndexRef.current++;
-
-      await mockStreamResponse(mockText, (token) => {
-        streamingRef.current += token;
-        if (!throttleRef.current) {
-          throttleRef.current = setTimeout(() => {
-            streamingStore.set(streamingRef.current);
-            throttleRef.current = null;
-          }, STREAMING_THROTTLE_MS);
-        }
-      });
-    } catch (err) {
-      console.error("Generation error:", err);
-      streamingRef.current = "Error generating response";
-    } finally {
+  const finishAssistantMessage = useCallback(
+    (assistantId: string, content: string) => {
       if (throttleRef.current) {
         clearTimeout(throttleRef.current);
         throttleRef.current = null;
       }
-      const finalContent = streamingRef.current;
-      setMessages((prev) => {
-        const updated = [...prev];
-        const lastIdx = updated.length - 1;
-        updated[lastIdx] = {
-          ...updated[lastIdx],
-          content: finalContent,
-        };
-        return updated;
-      });
-      streamingRef.current = "";
       streamingStore.set("");
-      setIsGenerating(false);
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === assistantId ? { ...message, content } : message,
+        ),
+      );
+    },
+    [streamingStore],
+  );
 
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  const runStream = useCallback(
+    async ({
+      assistantId,
+      sessionId,
+      message,
+      resume,
+    }: {
+      assistantId: string;
+      sessionId: string;
+      message?: string;
+      resume?: boolean;
+    }) => {
+      if (!client) throw new Error("Pair with Odysseus first");
+      const controller = new AbortController();
+      abortRef.current = controller;
+      let streamed = "";
+      let modelLabel = "";
+
+      setIsGenerating(true);
+      setCanResume(false);
+      setError(null);
+      setStreamStatusLabel(resume ? "Resuming" : "Streaming");
+      streamingStore.set("");
+
+      try {
+        const onEvent = (event: Parameters<typeof client.chatStream>[1] extends (event: infer E) => void ? E : never) => {
+          if (event.type === "delta") {
+            streamed += event.text;
+            flushStreaming(streamed);
+            return;
+          }
+          if (event.type === "model_info") {
+            modelLabel = String(event.data.model || "");
+            setStreamStatusLabel(modelLabel ? `Streaming ${modelLabel}` : "Streaming");
+            return;
+          }
+          if (event.type === "metrics") {
+            const tokens = event.data.output_tokens ?? event.data.total_tokens;
+            const tps = event.data.tokens_per_second;
+            if (tokens || tps) {
+              setStreamStatusLabel(
+                [tokens ? `${tokens} tokens` : "", tps ? `${tps} tok/s` : ""]
+                  .filter(Boolean)
+                  .join(" · "),
+              );
+            }
+            return;
+          }
+          if (event.type === "tool_output") {
+            streamed += `\n\n\`\`\`\n${String(event.data.output ?? "")}\n\`\`\``;
+            flushStreaming(streamed);
+            return;
+          }
+          if (event.type === "research") {
+            setStreamStatusLabel(event.eventType.replace(/_/g, " "));
+            return;
+          }
+          if (event.type === "error") {
+            throw new Error(event.error);
+          }
+        };
+
+        if (resume) {
+          await client.resumeStream(sessionId, onEvent, controller.signal);
+        } else {
+          await client.chatStream(
+            {
+              sessionId,
+              message: message ?? "",
+              mode: "chat",
+              signal: controller.signal,
+            },
+            onEvent,
+          );
+        }
+        finishAssistantMessage(assistantId, streamed || "Done.");
+        setStreamStatusLabel(modelLabel || "Done");
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (err) {
+        const nextError =
+          err instanceof Error ? err : new Error("Odysseus stream failed");
+        if (nextError.name !== "AbortError") {
+          setError(nextError);
+          finishAssistantMessage(
+            assistantId,
+            streamed || `Error: ${nextError.message}`,
+          );
+        } else {
+          finishAssistantMessage(assistantId, streamed || "Stopped.");
+        }
+        setCanResume(true);
+      } finally {
+        abortRef.current = null;
+        setIsGenerating(false);
+      }
+    },
+    [client, finishAssistantMessage, flushStreaming, streamingStore],
+  );
+
+  const onSend = useCallback(async () => {
+    const text = input.trim();
+    if (!text || isGenerating || !canChat) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const userMessage: ChatMessage = {
+      id: `${Date.now()}-user`,
+      role: "user",
+      content: text,
+    };
+    const assistantId = `${Date.now()}-assistant`;
+    const assistantMessage: ChatMessage = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+    };
+
+    setMessages((current) => [...current, userMessage, assistantMessage]);
+    setInput("");
+
+    try {
+      const session = activeSession ?? (await createSession({ name: "Mobile companion" }));
+      await runStream({
+        assistantId,
+        sessionId: session.id,
+        message: text,
+      });
+    } catch (err) {
+      const nextError = err instanceof Error ? err : new Error("Unable to send");
+      setError(nextError);
+      finishAssistantMessage(assistantId, `Error: ${nextError.message}`);
     }
-  }, [input, isGenerating, messages, streamingStore]);
+  }, [
+    activeSession,
+    canChat,
+    createSession,
+    finishAssistantMessage,
+    input,
+    isGenerating,
+    runStream,
+  ]);
+
+  const onStop = useCallback(async () => {
+    if (!activeSessionId || !client) return;
+    setStreamStatusLabel("Stopping");
+    await client.stopStream(activeSessionId).catch(() => undefined);
+    abortRef.current?.abort();
+    setCanResume(true);
+  }, [activeSessionId, client]);
+
+  const onResume = useCallback(async () => {
+    if (!activeSessionId || isGenerating) return;
+    const assistantId = `${Date.now()}-assistant-resume`;
+    setMessages((current) => [
+      ...current,
+      { id: assistantId, role: "assistant", content: "" },
+    ]);
+    await runStream({ assistantId, sessionId: activeSessionId, resume: true });
+  }, [activeSessionId, isGenerating, runStream]);
 
   return {
     messages,
     input,
     setInput,
     isGenerating,
-    onSend: handleSend,
+    onSend,
+    onStop,
+    onResume,
+    canResume,
+    streamStatusLabel,
     streamingStore,
+    error,
+    ready: status === "paired" && canChat,
   };
 }
 
 export default function ChatScreen() {
-  const chat = USE_MOCK ? useMockChat() : useAIChat();
-  const { messages, isGenerating, streamingStore } = chat;
+  const companion = useCompanion();
+  const chat = useOdysseusChat();
+  const { isGenerating, streamingStore } = chat;
 
   const renderMessage = useCallback(
     ({ item }: { item: ChatMessage }) => {
@@ -232,6 +279,32 @@ export default function ChatScreen() {
     [isGenerating, streamingStore],
   );
 
+  if (companion.status === "loading") {
+    return (
+      <View className="flex-1 items-center justify-center gap-3 bg-background">
+        <ActivityIndicator />
+        <Text className="text-sm text-muted-foreground">Loading Odysseus</Text>
+      </View>
+    );
+  }
+
+  if (companion.status === "unpaired") {
+    return <PairingScreen />;
+  }
+
+  if (!chat.ready) {
+    return (
+      <View className="flex-1 items-center justify-center gap-3 bg-background px-8">
+        <Text className="text-center text-lg font-semibold text-foreground">
+          Chat Scope Missing
+        </Text>
+        <Text className="text-center text-sm leading-5 text-muted-foreground">
+          Pair with a companion token that carries the chat scope.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <>
       <ChatProvider value={chat}>
@@ -239,18 +312,27 @@ export default function ChatScreen() {
           renderMessage={renderMessage}
           emptyState={
             <ConversationEmptyState
-              title="Chat"
-              description="Send a message to get started"
+              title="Odysseus"
+              description={
+                companion.activeSession
+                  ? companion.activeSession.name
+                  : "Send a message to create a companion session"
+              }
             />
           }
         >
           <ConversationScrollButton />
           <PromptInput>
-            <Link href="/attachments" asChild>
+            <Link href="/session" asChild>
               <PromptInputAction>
-                <Icon icon={Plus} className="w-5 h-5 text-muted-foreground" />
+                <Icon icon={Server} className="h-5 w-5 text-muted-foreground" />
               </PromptInputAction>
             </Link>
+            {chat.canResume && (
+              <PromptInputAction onPress={chat.onResume}>
+                <Icon icon={RefreshCw} className="h-5 w-5 text-muted-foreground" />
+              </PromptInputAction>
+            )}
             <PromptInputBody>
               <PromptInputTextarea />
               <PromptInputSubmit />

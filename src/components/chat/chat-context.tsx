@@ -8,6 +8,10 @@ export type ChatContextValue = {
   setInput: (value: string) => void;
   isGenerating: boolean;
   onSend: () => void;
+  onStop?: () => void;
+  onResume?: () => void;
+  canResume?: boolean;
+  streamStatusLabel?: string;
   streamingStore: StreamingStore;
   error?: Error | null;
 };

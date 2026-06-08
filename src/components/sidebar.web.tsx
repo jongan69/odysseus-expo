@@ -1,4 +1,4 @@
-import { MOCK_CHATS } from "@/utils/mock-chats";
+import { useCompanion } from "@/state/companion-store";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
@@ -12,9 +12,11 @@ import {
   PanelLeftOpen,
   Pin,
   Settings,
+  Server,
   Share,
   SquarePen,
   Trash2,
+  TerminalSquare,
   User,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -56,8 +58,10 @@ function SidebarTooltip({
 }
 
 const NAV_ITEMS = [
-  { href: "/", label: "Chats" },
-  { href: "/settings", label: "Settings" },
+  { href: "/", label: "Chat", icon: MessageSquarePlus },
+  { href: "/chats", label: "Sessions", icon: Server },
+  { href: "/commands", label: "Commands", icon: TerminalSquare },
+  { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
 
@@ -82,6 +86,14 @@ export function Sidebar({
   onCollapse: () => void;
 }) {
   const pathname = usePathname();
+  const { sessions, activeSessionId, setActiveSessionId, manifest, status } =
+    useCompanion();
+  const initials = (manifest?.owner || "OD")
+    .split(/[\s._-]+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <>
@@ -115,8 +127,8 @@ export function Sidebar({
         {!isCollapsed && (
           <View className="flex flex-row items-center px-4 pt-5 pb-3">
             <View className="flex flex-row items-center justify-between flex-1">
-              <Text className="text-[28px] font-bold text-foreground">
-                Chat
+              <Text className="font-mono text-[28px] font-bold text-foreground">
+                Odysseus
               </Text>
               <View className="flex flex-row items-center gap-1">
                 {/* Close button on mobile */}
@@ -156,15 +168,18 @@ export function Sidebar({
                         : "hover:bg-accent/50 active:bg-accent"
                     }`}
                   >
-                    <Text
-                      className={`text-base ${
-                        isActive
-                          ? "text-foreground font-medium"
-                          : "text-foreground"
-                      }`}
-                    >
-                      {item.label}
-                    </Text>
+                    <View className="flex-row items-center gap-3">
+                      <item.icon size={16} strokeWidth={1.7} />
+                      <Text
+                        className={`text-base ${
+                          isActive
+                            ? "text-foreground font-medium"
+                            : "text-foreground"
+                        }`}
+                      >
+                        {item.label}
+                      </Text>
+                    </View>
                   </Pressable>
                 </Link>
               );
@@ -172,15 +187,16 @@ export function Sidebar({
 
             {/* Recents */}
             <Text className="text-[13px] font-semibold text-muted-foreground/60 px-6 pt-5 pb-1.5 uppercase tracking-wider">
-              Recents
+              {status === "paired" ? "Sessions" : "Pairing"}
             </Text>
-            {MOCK_CHATS.map((chat) => {
-              const isActive = chat.id === "1";
+            {sessions.map((session) => {
+              const isActive = session.id === activeSessionId;
               return (
-                <ContextMenu.Root key={chat.id}>
+                <ContextMenu.Root key={session.id}>
                   <ContextMenu.Trigger asChild>
                     <Link href="/" asChild>
                       <Pressable
+                        onPress={() => setActiveSessionId(session.id)}
                         className={`px-4 py-2.5 mx-2 rounded-[10px] ${
                           isActive
                             ? "bg-accent"
@@ -195,7 +211,7 @@ export function Sidebar({
                               : "text-muted-foreground"
                           }`}
                         >
-                          {chat.title}
+                          {session.name || session.model || "Companion"}
                         </Text>
                       </Pressable>
                     </Link>
@@ -208,7 +224,7 @@ export function Sidebar({
                       </ContextMenu.Item>
                       <ContextMenu.Item className={MENU_ITEM_CLASS}>
                         <Edit3 size={14} strokeWidth={1.5} />
-                        Rename
+                        {session.model || "Model"}
                       </ContextMenu.Item>
                       <ContextMenu.Item className={MENU_ITEM_CLASS}>
                         <Share size={14} strokeWidth={1.5} />
@@ -276,10 +292,12 @@ export function Sidebar({
                   <Pressable className="flex flex-row items-center gap-2.5 rounded-full hover:opacity-70 active:opacity-60">
                     <View className="rounded-full bg-muted items-center justify-center shrink-0 w-8 h-8">
                       <Text className="font-semibold text-foreground text-[13px]">
-                        EB
+                        {initials || "OD"}
                       </Text>
                     </View>
-                    <Text className="text-sm text-foreground">Evan Bacon</Text>
+                    <Text className="text-sm text-foreground">
+                      {manifest?.owner ?? "Odysseus"}
+                    </Text>
                   </Pressable>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>

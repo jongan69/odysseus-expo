@@ -1,0 +1,373 @@
+import {
+  OdysseusClient,
+  companionBaseUrlFromPairing,
+  parsePairingPayload,
+  type CommandDefinition,
+  type CompanionEndpoint,
+  type CompanionManifest,
+  type CompanionSession,
+  type PairingPayload,
+} from "@/api/odysseusClient";
+import {
+  createCommandKeyPair,
+  type CommandKeyPair,
+  type JsonValue,
+} from "@/crypto/companionSigning";
+import {
+  deleteSecureItem,
+  getSecureItem,
+  setSecureItem,
+} from "@/storage/secureCompanionStorage";
+import React, {
+  createContext,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+const PAIRING_STORAGE_KEY = "odysseus.companion.pairing.v1";
+const COMMAND_KEY_STORAGE_KEY = "odysseus.companion.command-key.v1";
+
+type StoredPairing = {
+  pairing: PairingPayload;
+  baseUrl: string;
+  protocol: "http" | "https";
+  activeSessionId?: string;
+};
+
+type CompanionStatus = "loading" | "unpaired" | "paired" | "error";
+
+type CompanionContextValue = {
+  status: CompanionStatus;
+  baseUrl?: string;
+  protocol: "http" | "https";
+  pairing?: PairingPayload;
+  manifest?: CompanionManifest;
+  endpoints: CompanionEndpoint[];
+  sessions: CompanionSession[];
+  activeSessionId?: string;
+  activeSession?: CompanionSession;
+  commandKey?: CommandKeyPair;
+  commandCatalog: CommandDefinition[];
+  tokenScopes: string[];
+  canChat: boolean;
+  canUseCommands: boolean;
+  isInsecureTransport: boolean;
+  error?: string;
+  client?: OdysseusClient;
+  pairFromPayload: (payloadText: string, protocol?: "http" | "https") => Promise<void>;
+  refresh: () => Promise<void>;
+  createSession: (input: {
+    name?: string;
+    endpointId?: string;
+    model?: string;
+    rag?: boolean;
+  }) => Promise<CompanionSession>;
+  setActiveSessionId: (sessionId: string) => Promise<void>;
+  ensureCommandKeyRegistered: () => Promise<CommandKeyPair>;
+  revokeCommandKey: () => Promise<void>;
+  sendCommand: (
+    command: string,
+    args?: Record<string, JsonValue>,
+  ) => Promise<Record<string, unknown>>;
+  forgetAll: () => Promise<void>;
+};
+
+const CompanionContext = createContext<CompanionContextValue | null>(null);
+
+function commandCatalogFromManifest(manifest?: CompanionManifest) {
+  const commands = manifest?.features?.signed_commands?.commands;
+  if (Array.isArray(commands) && commands.length) return commands;
+  return [
+    {
+      name: "capabilities",
+      description: "Return the fixed read-only command list and safety flags.",
+      mode: "read_only",
+      mutating: false,
+      args_schema: { type: "object", additionalProperties: false, properties: {} },
+    },
+    {
+      name: "server_status",
+      description: "Return server, version, owner, time, and platform status.",
+      mode: "read_only",
+      mutating: false,
+      args_schema: { type: "object", additionalProperties: false, properties: {} },
+    },
+    {
+      name: "workspace_status",
+      description: "Return current process workspace and git summary.",
+      mode: "read_only",
+      mutating: false,
+      args_schema: { type: "object", additionalProperties: false, properties: {} },
+    },
+    {
+      name: "git_status",
+      description: "Return the git summary only.",
+      mode: "read_only",
+      mutating: false,
+      args_schema: { type: "object", additionalProperties: false, properties: {} },
+    },
+  ] satisfies CommandDefinition[];
+}
+
+function parseStoredPairing(value: string | null): StoredPairing | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as StoredPairing;
+    if (!parsed?.baseUrl || !parsed?.pairing) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function parseStoredCommandKey(value: string | null): CommandKeyPair | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as CommandKeyPair;
+    if (!parsed.keyId || !parsed.privateSeedB64 || !parsed.publicKeyB64) {
+      return undefined;
+    }
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+export function CompanionProvider({ children }: { children: React.ReactNode }) {
+  const [status, setStatus] = useState<CompanionStatus>("loading");
+  const [stored, setStored] = useState<StoredPairing | null>(null);
+  const [manifest, setManifest] = useState<CompanionManifest>();
+  const [endpoints, setEndpoints] = useState<CompanionEndpoint[]>([]);
+  const [sessions, setSessions] = useState<CompanionSession[]>([]);
+  const [commandKey, setCommandKey] = useState<CommandKeyPair>();
+  const [error, setError] = useState<string>();
+
+  const client = useMemo(() => {
+    if (!stored) return undefined;
+    return new OdysseusClient(stored.baseUrl, stored.pairing.token);
+  }, [stored]);
+
+  const refresh = useCallback(async () => {
+    if (!client) return;
+    setError(undefined);
+    try {
+      const [nextManifest, nextModels, nextSessions] = await Promise.all([
+        client.manifest(),
+        client.models(),
+        client.sessions(),
+      ]);
+      setManifest(nextManifest);
+      setEndpoints(nextModels.endpoints ?? []);
+      setSessions(nextSessions.sessions ?? []);
+      setStatus("paired");
+    } catch (err) {
+      setStatus("error");
+      setError(err instanceof Error ? err.message : "Unable to refresh Odysseus");
+    }
+  }, [client]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function hydrate() {
+      const [pairingValue, keyValue] = await Promise.all([
+        getSecureItem(PAIRING_STORAGE_KEY),
+        getSecureItem(COMMAND_KEY_STORAGE_KEY),
+      ]);
+      if (cancelled) return;
+      const nextStored = parseStoredPairing(pairingValue);
+      setStored(nextStored);
+      setCommandKey(parseStoredCommandKey(keyValue));
+      setStatus(nextStored ? "paired" : "unpaired");
+    }
+    hydrate();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (status === "paired" && client && !manifest) {
+      const timer = setTimeout(() => {
+        refresh();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [client, manifest, refresh, status]);
+
+  const persistStored = useCallback(async (nextStored: StoredPairing) => {
+    setStored(nextStored);
+    await setSecureItem(PAIRING_STORAGE_KEY, JSON.stringify(nextStored));
+  }, []);
+
+  const pairFromPayload = useCallback(
+    async (payloadText: string, protocol: "http" | "https" = "http") => {
+      const pairing = parsePairingPayload(payloadText);
+      const baseUrl = companionBaseUrlFromPairing(pairing, protocol);
+      const nextStored = { pairing, baseUrl, protocol } satisfies StoredPairing;
+      setError(undefined);
+      setManifest(undefined);
+      setEndpoints([]);
+      setSessions([]);
+      await persistStored(nextStored);
+      setStatus("paired");
+    },
+    [persistStored],
+  );
+
+  const createSession = useCallback(
+    async (input: {
+      name?: string;
+      endpointId?: string;
+      model?: string;
+      rag?: boolean;
+    }) => {
+      if (!client || !stored) throw new Error("Pair with Odysseus first");
+      const result = await client.createSession(input);
+      const nextSessions = [result.session, ...sessions.filter((s) => s.id !== result.session.id)];
+      setSessions(nextSessions);
+      const nextStored = { ...stored, activeSessionId: result.session.id };
+      await persistStored(nextStored);
+      return result.session;
+    },
+    [client, persistStored, sessions, stored],
+  );
+
+  const setActiveSessionId = useCallback(
+    async (sessionId: string) => {
+      if (!stored) return;
+      await persistStored({ ...stored, activeSessionId: sessionId });
+    },
+    [persistStored, stored],
+  );
+
+  const ensureCommandKeyRegistered = useCallback(async () => {
+    if (!client) throw new Error("Pair with Odysseus first");
+    let nextKey = commandKey ?? (await createCommandKeyPair());
+    if (!nextKey.registered) {
+      await client.registerKey({
+        publicKeyB64: nextKey.publicKeyB64,
+        keyId: nextKey.keyId,
+        label: "Odysseus mobile companion",
+      });
+      nextKey = { ...nextKey, registered: true };
+    }
+    setCommandKey(nextKey);
+    await setSecureItem(COMMAND_KEY_STORAGE_KEY, JSON.stringify(nextKey));
+    return nextKey;
+  }, [client, commandKey]);
+
+  const revokeCommandKey = useCallback(async () => {
+    if (client && commandKey?.registered) {
+      await client.revokeKey(commandKey.keyId);
+    }
+    setCommandKey(undefined);
+    await deleteSecureItem(COMMAND_KEY_STORAGE_KEY);
+  }, [client, commandKey]);
+
+  const sendCommand = useCallback(
+    async (command: string, args: Record<string, JsonValue> = {}) => {
+      if (!client) throw new Error("Pair with Odysseus first");
+      const key = await ensureCommandKeyRegistered();
+      return client.command(command, args, key);
+    },
+    [client, ensureCommandKeyRegistered],
+  );
+
+  const forgetAll = useCallback(async () => {
+    try {
+      if (client && commandKey?.registered) {
+        await client.revokeKey(commandKey.keyId);
+      }
+    } catch {
+      // Local forgetting must always work, even if the server is offline.
+    }
+    await Promise.all([
+      deleteSecureItem(PAIRING_STORAGE_KEY),
+      deleteSecureItem(COMMAND_KEY_STORAGE_KEY),
+    ]);
+    setStored(null);
+    setManifest(undefined);
+    setEndpoints([]);
+    setSessions([]);
+    setCommandKey(undefined);
+    setError(undefined);
+    setStatus("unpaired");
+  }, [client, commandKey]);
+
+  const activeSession = sessions.find((session) => session.id === stored?.activeSessionId);
+  const tokenScopes = useMemo(
+    () => manifest?.auth?.token_scopes ?? [],
+    [manifest?.auth?.token_scopes],
+  );
+  const canChat = tokenScopes.includes("chat") || manifest?.auth?.mode === "session";
+  const canUseCommands =
+    tokenScopes.includes(manifest?.auth?.required_command_scope || "remote_development") ||
+    manifest?.auth?.mode === "session";
+  const commandCatalog = commandCatalogFromManifest(manifest);
+
+  const value = useMemo<CompanionContextValue>(
+    () => ({
+      status,
+      baseUrl: stored?.baseUrl,
+      protocol: stored?.protocol ?? "http",
+      pairing: stored?.pairing,
+      manifest,
+      endpoints,
+      sessions,
+      activeSessionId: stored?.activeSessionId,
+      activeSession,
+      commandKey,
+      commandCatalog,
+      tokenScopes,
+      canChat,
+      canUseCommands,
+      isInsecureTransport: !!stored && stored.protocol !== "https",
+      error,
+      client,
+      pairFromPayload,
+      refresh,
+      createSession,
+      setActiveSessionId,
+      ensureCommandKeyRegistered,
+      revokeCommandKey,
+      sendCommand,
+      forgetAll,
+    }),
+    [
+      activeSession,
+      canChat,
+      canUseCommands,
+      client,
+      commandCatalog,
+      commandKey,
+      createSession,
+      endpoints,
+      ensureCommandKeyRegistered,
+      error,
+      forgetAll,
+      manifest,
+      pairFromPayload,
+      refresh,
+      revokeCommandKey,
+      sendCommand,
+      sessions,
+      setActiveSessionId,
+      status,
+      stored,
+      tokenScopes,
+    ],
+  );
+
+  return <CompanionContext value={value}>{children}</CompanionContext>;
+}
+
+export function useCompanion() {
+  const context = use(CompanionContext);
+  if (!context) {
+    throw new Error("useCompanion must be used within CompanionProvider");
+  }
+  return context;
+}
