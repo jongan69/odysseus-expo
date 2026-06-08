@@ -3,7 +3,15 @@ import { useCompanion } from "@/state/companion-store";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Camera, KeyRound, ShieldAlert, Wifi } from "lucide-react-native";
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
 export function PairingScreen() {
@@ -11,21 +19,32 @@ export function PairingScreen() {
   const [payload, setPayload] = useState("");
   const [useHttps, setUseHttps] = useState(false);
   const [scannerEnabled, setScannerEnabled] = useState(true);
+  const [isPairing, setIsPairing] = useState(false);
   const [error, setError] = useState<string>();
   const { pairFromPayload } = useCompanion();
 
   const pair = useCallback(
     async (nextPayload = payload) => {
+      const trimmedPayload = nextPayload.trim();
+      if (!trimmedPayload || isPairing) return;
+      setScannerEnabled(false);
+      setIsPairing(true);
       try {
         setError(undefined);
-        await pairFromPayload(nextPayload, useHttps ? "https" : "http");
+        await pairFromPayload(trimmedPayload, useHttps ? "https" : "http");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Invalid pairing payload");
-        setScannerEnabled(false);
+      } finally {
+        setIsPairing(false);
       }
     },
-    [pairFromPayload, payload, useHttps],
+    [isPairing, pairFromPayload, payload, useHttps],
   );
+
+  const resumeScanner = useCallback(() => {
+    setError(undefined);
+    setScannerEnabled(true);
+  }, []);
 
   return (
     <ScrollView
@@ -45,16 +64,40 @@ export function PairingScreen() {
       </View>
 
       <View className="overflow-hidden rounded-[18px] border border-border bg-card border-continuous">
-        {permission?.granted && scannerEnabled ? (
-          <CameraView
-            className="h-72 w-full"
-            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-            onBarcodeScanned={({ data }) => {
-              setScannerEnabled(false);
-              setPayload(data);
-              pair(data);
-            }}
-          />
+        {permission?.granted ? (
+          <View className="h-72 w-full overflow-hidden bg-black">
+            <CameraView
+              style={StyleSheet.absoluteFill}
+              facing="back"
+              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+              onBarcodeScanned={
+                scannerEnabled && !isPairing
+                  ? ({ data }) => {
+                      setPayload(data);
+                      void pair(data);
+                    }
+                  : undefined
+              }
+            />
+            <View pointerEvents="none" className="absolute inset-0 items-center justify-center">
+              <View className="h-40 w-40 rounded-[28px] border-2 border-white/80" />
+            </View>
+            {(isPairing || !scannerEnabled) && (
+              <View className="absolute inset-x-4 bottom-4 rounded-xl bg-black/70 px-4 py-3">
+                <Text className="text-center text-sm font-semibold text-white">
+                  {isPairing ? "Pairing with Odysseus" : "Scanner paused"}
+                </Text>
+                {!isPairing && (
+                  <Pressable
+                    onPress={resumeScanner}
+                    className="mt-3 items-center rounded-lg bg-white px-4 py-2 active:opacity-80"
+                  >
+                    <Text className="text-sm font-semibold text-black">Scan Again</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+          </View>
         ) : (
           <View className="h-72 items-center justify-center gap-3 bg-muted px-8">
             <Icon icon={Camera} className="h-10 w-10 text-muted-foreground" />

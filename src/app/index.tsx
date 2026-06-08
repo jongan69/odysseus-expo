@@ -310,6 +310,30 @@ export default function ChatScreen() {
     return <PairingScreen />;
   }
 
+  if (companion.status === "error") {
+    return (
+      <View className="flex-1 items-center justify-center gap-3 bg-background px-8">
+        <Text className="text-center text-lg font-semibold text-foreground">
+          Connection Failed
+        </Text>
+        <Text selectable className="text-center text-sm leading-5 text-muted-foreground">
+          {companion.error ?? "Unable to reach the paired Odysseus server."}
+        </Text>
+      </View>
+    );
+  }
+
+  if (!companion.manifest) {
+    return (
+      <View className="flex-1 items-center justify-center gap-3 bg-background px-8">
+        <ActivityIndicator />
+        <Text className="text-center text-sm leading-5 text-muted-foreground">
+          Connecting to the paired Odysseus server
+        </Text>
+      </View>
+    );
+  }
+
   if (!chat.ready) {
     return (
       <View className="flex-1 items-center justify-center gap-3 bg-background px-8">
@@ -317,7 +341,8 @@ export default function ChatScreen() {
           Chat Scope Missing
         </Text>
         <Text className="text-center text-sm leading-5 text-muted-foreground">
-          Pair with a companion token that carries the chat scope.
+          Pair with a companion token that carries the{" "}
+          {companion.manifest.auth?.required_bearer_scope ?? "chat"} scope.
         </Text>
       </View>
     );

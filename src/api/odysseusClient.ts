@@ -78,6 +78,7 @@ export type CompanionManifest = {
     chat?: {
       available?: boolean;
       streaming?: boolean;
+      required_bearer_scope?: string;
       stream_path?: string;
       resume_path?: string;
       stop_path?: string;

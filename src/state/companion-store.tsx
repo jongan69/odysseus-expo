@@ -142,6 +142,25 @@ function parseStoredCommandKey(value: string | null): CommandKeyPair | undefined
   }
 }
 
+type CompanionSnapshot = {
+  manifest: CompanionManifest;
+  endpoints: CompanionEndpoint[];
+  sessions: CompanionSession[];
+};
+
+async function fetchCompanionSnapshot(client: OdysseusClient): Promise<CompanionSnapshot> {
+  const [manifest, models, sessions] = await Promise.all([
+    client.manifest(),
+    client.models(),
+    client.sessions(),
+  ]);
+  return {
+    manifest,
+    endpoints: models.endpoints ?? [],
+    sessions: sessions.sessions ?? [],
+  };
+}
+
 export function CompanionProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<CompanionStatus>("loading");
   const [stored, setStored] = useState<StoredPairing | null>(null);
@@ -156,24 +175,23 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     return new OdysseusClient(stored.baseUrl, stored.pairing.token);
   }, [stored]);
 
+  const applySnapshot = useCallback((snapshot: CompanionSnapshot) => {
+    setManifest(snapshot.manifest);
+    setEndpoints(snapshot.endpoints);
+    setSessions(snapshot.sessions);
+    setStatus("paired");
+  }, []);
+
   const refresh = useCallback(async () => {
     if (!client) return;
     setError(undefined);
     try {
-      const [nextManifest, nextModels, nextSessions] = await Promise.all([
-        client.manifest(),
-        client.models(),
-        client.sessions(),
-      ]);
-      setManifest(nextManifest);
-      setEndpoints(nextModels.endpoints ?? []);
-      setSessions(nextSessions.sessions ?? []);
-      setStatus("paired");
+      applySnapshot(await fetchCompanionSnapshot(client));
     } catch (err) {
       setStatus("error");
       setError(err instanceof Error ? err.message : "Unable to refresh Odysseus");
     }
-  }, [client]);
+  }, [applySnapshot, client]);
 
   useEffect(() => {
     let cancelled = false;
@@ -221,14 +239,20 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       const pairing = parsePairingPayload(payloadText);
       const baseUrl = companionBaseUrlFromPairing(pairing, protocol);
       const nextStored = { pairing, baseUrl, protocol } satisfies StoredPairing;
+      const nextClient = new OdysseusClient(baseUrl, pairing.token);
       setError(undefined);
-      setManifest(undefined);
-      setEndpoints([]);
-      setSessions([]);
-      await persistStored(nextStored);
-      setStatus("paired");
+      try {
+        const snapshot = await fetchCompanionSnapshot(nextClient);
+        await persistStored(nextStored);
+        applySnapshot(snapshot);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Unable to connect to Odysseus";
+        setError(message);
+        throw new Error(`Unable to pair with ${baseUrl}: ${message}`);
+      }
     },
-    [persistStored],
+    [applySnapshot, persistStored],
   );
 
   const selectedEndpoint = useMemo(
@@ -351,7 +375,13 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     () => manifest?.auth?.token_scopes ?? [],
     [manifest?.auth?.token_scopes],
   );
-  const canChat = tokenScopes.includes("chat") || manifest?.auth?.mode === "session";
+  const requiredChatScope =
+    manifest?.auth?.required_bearer_scope ??
+    manifest?.features?.chat?.required_bearer_scope ??
+    "chat";
+  const canChat =
+    manifest?.features?.chat?.available !== false &&
+    (manifest?.auth?.mode === "session" || tokenScopes.includes(requiredChatScope));
   const canUseCommands =
     tokenScopes.includes(manifest?.auth?.required_command_scope || "remote_development") ||
     manifest?.auth?.mode === "session";

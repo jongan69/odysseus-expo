@@ -10,6 +10,10 @@
       "infoPlist": {
         "UIViewControllerBasedStatusBarAppearance": true,
         "NSCameraUsageDescription": "Scan the Odysseus companion pairing QR code.",
+        "NSLocalNetworkUsageDescription": "Connect to your Odysseus companion server on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
         "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.jongan69.odysseus-companion"
