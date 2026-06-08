@@ -1,93 +1,160 @@
-# Chat Template
+# Odysseus Companion
 
-https://github.com/user-attachments/assets/864ca10c-be94-4c45-8e98-a71bff7a0042
+Odysseus Companion is a private mobile and web client for pairing with an
+Odysseus server, chatting through owner-scoped sessions, and running
+manifest-driven signed commands from a trusted device.
 
-A high-performance AI chatbot template built with [Expo](https://expo.dev) and [Expo Router](https://docs.expo.dev/router/introduction/). Ships with iOS 26 Liquid Glass support, a responsive web UI, and runs on iOS, Android, and web from a single codebase.
+The app is built with Expo Router and supports iOS, Android, and web from the
+same codebase. Native verification requires a custom Expo development build;
+Expo Go is not supported for this project.
 
 ## Features
 
-- **Liquid Glass** -- glassmorphic prompt composer, navigation bars, and toolbar buttons on iOS 26 via `expo-glass-effect`
-- **Web-first sidebar** -- collapsible sidebar with Radix context menus, dropdown menus, and tooltips for a desktop-grade web experience
-- **Streaming messages** with throttled ~30fps updates, markdown rendering (code blocks, tables, inline formatting), and shimmer loading states
-- **Platform-adaptive layouts** -- native gesture-driven drawer on iOS/Android, sidebar + inset content panel on web
-- **Dark mode** -- automatic light/dark theme using OKLCH design tokens in Tailwind CSS v4
-- **Native UI controls** -- SwiftUI model picker menu, toolbar buttons, and haptic feedback on iOS
-- **Keyboard-aware** -- prompt input stays above the keyboard with `react-native-keyboard-controller`
-- **Virtualized chat** -- performant scrolling with `@legendapp/list` and Reanimated-powered scroll-to-bottom button
+- QR and manual pairing with an admin-generated Odysseus companion payload
+- Bearer-token access to the companion manifest, models, sessions, and chat
+- Secure on-device storage for pairing state and command signing keys
+- Server-sent event chat streaming with stop and resume support
+- Session and model selection from the paired server's available endpoints
+- Manifest-driven command catalog with Ed25519 request signing
+- Native drawer navigation on mobile and a responsive sidebar on web
+- iOS Liquid Glass support through `expo-glass-effect`
+- Tailwind CSS v4 styling through Uniwind and OKLCH design tokens
 
-## Tech Stack
+## Stack
 
-| Layer      | Technology                                                                                                              |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Framework  | Expo SDK 55, React Native 0.83, React 19                                                                                |
-| Navigation | Expo Router (file-based) with typed routes, [Legend List](https://legendapp.com/open-source/list/) for virtualized chat |
-| Styling    | Tailwind CSS v4 via [Uniwind](https://uniwind.dev/) + `tailwind-merge`                                                  |
-| Native UI  | `@expo/ui` (SwiftUI), `expo-symbols`, `expo-haptics`, `expo-glass-effect`                                               |
-| Web UI     | Radix UI (context menu, dropdown menu, tooltips), Lucide icons                                                          |
-| Markdown   | Custom AST renderer with `mdast-util-from-markdown` + `react-syntax-highlighter`                                        |
-| Animations | `react-native-reanimated`, `react-native-gesture-handler`                                                               |
+| Layer | Technology |
+| --- | --- |
+| Framework | Expo SDK 56, React Native 0.85, React 19 |
+| Navigation | Expo Router with routes under `src/app` |
+| Styling | Uniwind, Tailwind CSS v4, `tailwind-merge` |
+| Native UI | `@expo/ui`, `expo-glass-effect`, `expo-haptics`, `expo-secure-store` |
+| Chat | Odysseus `/api/chat_stream` SSE client plus local streaming UI store |
+| Commands | Ed25519 signatures via `tweetnacl` and manifest-defined command schemas |
+| Web UI | Radix context/dropdown/tooltip primitives and Lucide icons |
+| Markdown | Custom AST renderer with `mdast-util-from-markdown` and syntax highlighting |
 
-## Getting Started
+## Requirements
 
-### Environment Variables
+- Bun
+- Xcode and an iOS simulator for Apple platform verification
+- A reachable Odysseus server with the companion API enabled
+- A custom Expo development build for native app testing
 
-Copy `.env.example` to `.env` and fill in the values:
+Use `bunx expo install <package>` when adding Expo-managed dependencies so
+versions stay aligned with the installed Expo SDK.
+
+## Setup
+
+Install dependencies:
+
+```bash
+bun install
+```
+
+Create local environment settings:
 
 ```bash
 cp .env.example .env
 ```
 
-| Variable              | Description                                                                                                                                                    |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ANTHROPIC_API_KEY`   | Your [Anthropic API key](https://console.anthropic.com/settings/keys). Used by the server-side chat API route (`app/api/chat+api.ts`) via `@ai-sdk/anthropic`. |
-| `EXPO_PUBLIC_MOCK_AI` | Set to `1` to use mock streaming responses instead of calling the Anthropic API. Useful for UI development without an API key.                                 |
+| Variable | Purpose |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | Used only by the local `src/app/api/chat+api.ts` Expo API route. The main companion chat flow talks to the paired Odysseus server. |
+| `EXPO_UNSTABLE_DEPLOY_SERVER` | Enables Expo server output/API route behavior when required by the target environment. |
 
-### Install & Run
+## Running
+
+Start the Expo dev server:
 
 ```bash
-# Install dependencies
-bun install
-
-# Start the dev server
 bun start
+```
 
-# Run on a specific platform
+Run native builds:
+
+```bash
 bun run ios
 bun run android
+```
+
+Run web:
+
+```bash
 bun run web
 ```
 
-> Requires [Bun](https://bun.sh) and the [Expo CLI](https://docs.expo.dev/get-started/installation/). For iOS, you'll need Xcode and a simulator or device.
+## Verification
 
-## Customization
+This app requires a custom Expo development build and will not work in Expo Go.
+Use the project verification commands:
 
-### Theme
-
-Edit `global.css` to change the design tokens. Colors use OKLCH for perceptual uniformity across light and dark modes. The `@theme` block maps CSS variables to Tailwind classes:
-
-```css
---app-background  ->  bg-background
---app-foreground  ->  text-foreground
---app-muted       ->  bg-muted
---app-border      ->  border-border
-/* etc. */
+```bash
+npx serve-sim
+npx agent-browser
 ```
 
-### Chat Backend
+Use `npx serve-sim` for iOS and Apple platform checks. Use
+`npx agent-browser` for web verification.
 
-The template ships with mock streaming responses in `app/index.tsx`. Replace `mockStreamResponse` with your API integration -- the streaming architecture (`createStreamingStore` + throttled token callback) is ready for real LLM APIs.
+## Pairing
 
-### Database
+The app expects a companion pairing payload generated by the Odysseus server:
 
-I recommend using Convex, which you can setup in a single command:
-
+```json
+{
+  "v": 1,
+  "host": "192.168.1.10",
+  "port": 7000,
+  "token": "ody_..."
+}
 ```
-npx eas-cli@latest integrations:convex:connect
+
+Pairing can be completed by scanning the QR code or pasting the JSON payload
+into the pairing screen. HTTP is intended for trusted same-network development
+devices. Use HTTPS only with trusted Odysseus origins.
+
+After pairing, the app stores the payload in `expo-secure-store` on native
+platforms. Web falls back to in-memory storage for the current runtime.
+
+## Odysseus API Contract
+
+The companion client calls these server endpoints:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/companion/manifest` | Reads contract version, auth requirements, features, transport guidance, and command metadata |
+| `GET /api/companion/models` | Lists owner-visible model endpoints |
+| `GET /api/companion/sessions` | Lists existing companion sessions |
+| `POST /api/companion/sessions` | Creates a session with endpoint, model, and RAG options |
+| `POST /api/chat_stream` | Streams chat responses over SSE |
+| `POST /api/chat/stop/:sessionId` | Stops an active stream |
+| `GET /api/chat/resume/:sessionId` | Resumes a detached stream |
+| `GET /api/chat/stream_status/:sessionId` | Reads stream status |
+| `POST /api/companion/keys` | Registers the device command public key |
+| `DELETE /api/companion/keys/:keyId` | Revokes the registered command key |
+| `POST /api/companion/commands` | Runs a signed command request |
+
+Command requests include `X-Odysseus-Command-*` headers generated from the
+device key. The private signing seed stays on the device.
+
+## Project Structure
+
+| Path | Purpose |
+| --- | --- |
+| `src/app` | Expo Router routes, API route, modals, and platform layouts |
+| `src/api/odysseusClient.ts` | Pairing parsing, REST calls, SSE parsing, and command requests |
+| `src/state/companion-store.tsx` | Pairing, manifest, session, command key, and command state |
+| `src/crypto/companionSigning.ts` | Command key generation and request signing |
+| `src/storage/secureCompanionStorage.ts` | Native SecureStore plus web fallback storage |
+| `src/screens` | Pairing, session, commands, and settings screens |
+| `src/components/chat` | Streaming conversation UI and prompt input |
+| `src/global.css` | Tailwind v4 and Uniwind theme tokens |
+
+## App Store Metadata
+
+Manage Apple App Store metadata and screenshots with EAS metadata commands:
+
+```bash
+npx eas-cli@latest metadata:pull
+npx eas-cli@latest metadata:push
 ```
-
-Pair this with [better-auth](https://labs.convex.dev/better-auth/framework-guides/expo) for authentication. Convex also has support for Expo Notifications: [Learn more](https://www.convex.dev/components/push-notifications).
-
-## License
-
-This template was made for https://agent.expo.dev and is made freely available under the MIT license.
-# odysseus-expo
