@@ -11,7 +11,8 @@
         "UIViewControllerBasedStatusBarAppearance": true,
         "NSCameraUsageDescription": "Scan the Odysseus companion pairing QR code.",
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "bundleIdentifier": "com.jongan69.odysseus-companion"
     },
     "android": {
       "predictiveBackGestureEnabled": false
