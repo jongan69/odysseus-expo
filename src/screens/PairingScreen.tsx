@@ -1,7 +1,13 @@
 import { Icon } from "@/components/icon";
 import { useCompanion } from "@/state/companion-store";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { Camera, KeyRound, ShieldAlert, Wifi } from "lucide-react-native";
+import {
+  Camera,
+  KeyRound,
+  RefreshCw,
+  ShieldAlert,
+  Wifi,
+} from "lucide-react-native";
 import { useCallback, useState } from "react";
 import {
   Pressable,
@@ -46,6 +52,11 @@ export function PairingScreen() {
     setScannerEnabled(true);
   }, []);
 
+  const retryScan = useCallback(() => {
+    setPayload("");
+    resumeScanner();
+  }, [resumeScanner]);
+
   return (
     <ScrollView
       className="flex-1 bg-background"
@@ -85,13 +96,18 @@ export function PairingScreen() {
             {(isPairing || !scannerEnabled) && (
               <View className="absolute inset-x-4 bottom-4 rounded-xl bg-black/70 px-4 py-3">
                 <Text className="text-center text-sm font-semibold text-white">
-                  {isPairing ? "Pairing with Odysseus" : "Scanner paused"}
+                  {isPairing
+                    ? "Pairing with Odysseus"
+                    : error
+                      ? "Scan failed"
+                      : "Scanner paused"}
                 </Text>
                 {!isPairing && (
                   <Pressable
-                    onPress={resumeScanner}
-                    className="mt-3 items-center rounded-lg bg-white px-4 py-2 active:opacity-80"
+                    onPress={retryScan}
+                    className="mt-3 flex-row items-center justify-center gap-2 rounded-lg bg-white px-4 py-2 active:opacity-80"
                   >
+                    <Icon icon={RefreshCw} className="h-4 w-4 text-black" />
                     <Text className="text-sm font-semibold text-black">Scan Again</Text>
                   </Pressable>
                 )}
@@ -158,11 +174,18 @@ export function PairingScreen() {
         <Animated.View
           entering={FadeIn.duration(180)}
           exiting={FadeOut.duration(120)}
-          className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3"
+          className="gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3"
         >
           <Text selectable className="text-sm text-red-500">
             {error}
           </Text>
+          <Pressable
+            onPress={retryScan}
+            className="flex-row items-center justify-center gap-2 rounded-lg border border-red-500/40 px-3 py-2 active:bg-red-500/10"
+          >
+            <Icon icon={RefreshCw} className="h-4 w-4 text-red-500" />
+            <Text className="text-sm font-semibold text-red-500">Retry Scan</Text>
+          </Pressable>
         </Animated.View>
       )}
     </ScrollView>
