@@ -23,6 +23,11 @@ import {
 import { Icon } from "@/components/icon";
 import type { CompanionHistoryMessage } from "@/api/odysseusClient";
 import { MainHeader } from "@/components/main-header";
+import {
+  beginBackgroundSession,
+  endBackgroundSession,
+  getBackgroundTimeRemaining,
+} from "@/native/backgroundSession";
 import { PairingScreen } from "@/screens/PairingScreen";
 import { useCompanion } from "@/state/companion-store";
 import {
@@ -34,9 +39,18 @@ import * as Haptics from "expo-haptics";
 import { Link } from "expo-router";
 import { RefreshCw, Server } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Text, View } from "react-native";
 
 const STREAMING_THROTTLE_MS = 32;
+const FINISHED_STREAM_STATUSES = new Set([
+  "complete",
+  "completed",
+  "done",
+  "error",
+  "idle",
+  "not_found",
+  "stopped",
+]);
 
 function contentToText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -69,6 +83,14 @@ function historyMessageToChatMessage(
   };
 }
 
+function shouldResumeStreamStatus(status?: { status?: string; detached?: boolean }) {
+  if (!status) return true;
+  if (status.detached) return true;
+  const normalized = status.status?.trim().toLowerCase();
+  if (!normalized) return true;
+  return !FINISHED_STREAM_STATUSES.has(normalized);
+}
+
 function useOdysseusChat() {
   const {
     status,
@@ -97,6 +119,18 @@ function useOdysseusChat() {
   const streamingStore = useMemo(() => createStreamingStore(), []);
   const abortRef = useRef<AbortController | null>(null);
   const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isGeneratingRef = useRef(false);
+  const activeStreamRef = useRef<{
+    assistantId: string;
+    sessionId: string;
+  } | null>(null);
+  const recoverableStreamRef = useRef<{
+    assistantId: string;
+    sessionId: string;
+  } | null>(null);
+  const autoRecoveryAttemptsRef = useRef<Record<string, number>>({});
+  const lastStreamEventAtRef = useRef(0);
+  const suppressAbortFinishRef = useRef<Record<string, boolean>>({});
   const storageScope = useMemo(
     () =>
       chatSessionStorageScope({
@@ -108,6 +142,10 @@ function useOdysseusChat() {
   const messagesBySession =
     messagesState.scope === storageScope ? messagesState.messagesBySession : {};
   const messages = activeSessionId ? (messagesBySession[activeSessionId] ?? []) : [];
+
+  useEffect(() => {
+    isGeneratingRef.current = isGenerating;
+  }, [isGenerating]);
 
   useEffect(() => {
     return () => {
@@ -164,17 +202,13 @@ function useOdysseusChat() {
     [replaceSessionMessages, storageScope],
   );
 
-  useEffect(() => {
-    if (!activeSessionId) return;
-    const sessionId = activeSessionId;
-    let cancelled = false;
-
-    async function hydrateSession() {
+  const hydrateSessionFromSources = useCallback(
+    async (sessionId: string, isCancelled: () => boolean = () => false) => {
       const localMessages = await loadChatSessionMessages(
         storageScope,
         sessionId,
       );
-      if (cancelled) return;
+      if (isCancelled()) return;
       if (localMessages.length) {
         const existingMessages = messagesBySessionRef.current[sessionId] ?? [];
         if (!existingMessages.length) {
@@ -185,7 +219,7 @@ function useOdysseusChat() {
       if (!client) return;
       try {
         const response = await client.history(sessionId);
-        if (cancelled) return;
+        if (isCancelled()) return;
         const historyMessages = response.history
           .map((message, index) =>
             historyMessageToChatMessage(sessionId, message, index),
@@ -206,13 +240,19 @@ function useOdysseusChat() {
       } catch {
         // Local persistence is the fallback when the companion history endpoint is unavailable.
       }
-    }
+    },
+    [client, replaceSessionMessages, storageScope],
+  );
 
-    void hydrateSession();
+  useEffect(() => {
+    if (!activeSessionId) return;
+    let cancelled = false;
+
+    void hydrateSessionFromSources(activeSessionId, () => cancelled);
     return () => {
       cancelled = true;
     };
-  }, [activeSessionId, client, replaceSessionMessages, storageScope]);
+  }, [activeSessionId, hydrateSessionFromSources]);
 
   const flushStreaming = useCallback(
     (text: string) => {
@@ -256,6 +296,11 @@ function useOdysseusChat() {
       if (!client) throw new Error("Pair with Odysseus first");
       const controller = new AbortController();
       abortRef.current = controller;
+      activeStreamRef.current = { assistantId, sessionId };
+      lastStreamEventAtRef.current = Date.now();
+      const backgroundSessionId = await beginBackgroundSession(
+        "Odysseus chat stream",
+      );
       let streamed = "";
       let modelLabel = "";
 
@@ -268,6 +313,7 @@ function useOdysseusChat() {
 
       try {
         const onEvent = (event: Parameters<typeof client.chatStream>[1] extends (event: infer E) => void ? E : never) => {
+          lastStreamEventAtRef.current = Date.now();
           if (event.type === "delta") {
             streamed += event.text;
             flushStreaming(streamed);
@@ -321,6 +367,7 @@ function useOdysseusChat() {
             onEvent,
           );
         }
+        recoverableStreamRef.current = null;
         finishAssistantMessage(sessionId, assistantId, streamed || "Done.");
         setStreamStatusLabel(modelLabel || "Done");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -334,12 +381,28 @@ function useOdysseusChat() {
             assistantId,
             streamed || `Error: ${nextError.message}`,
           );
+          recoverableStreamRef.current = { assistantId, sessionId };
+          setCanResume(true);
+        } else if (suppressAbortFinishRef.current[assistantId]) {
+          delete suppressAbortFinishRef.current[assistantId];
+          setCanResume(false);
+          setStreamStatusLabel("Done");
+        } else if (recoverableStreamRef.current?.assistantId === assistantId) {
+          setCanResume(true);
+          setStreamStatusLabel("Reconnecting");
         } else {
           finishAssistantMessage(sessionId, assistantId, streamed || "Stopped.");
+          if (AppState.currentState !== "active") {
+            recoverableStreamRef.current = { assistantId, sessionId };
+          }
+          setCanResume(true);
         }
-        setCanResume(true);
       } finally {
+        await endBackgroundSession(backgroundSessionId);
         abortRef.current = null;
+        if (activeStreamRef.current?.assistantId === assistantId) {
+          activeStreamRef.current = null;
+        }
         setGeneratingSessionId(undefined);
         setIsGenerating(false);
         void refresh();
@@ -426,6 +489,113 @@ function useOdysseusChat() {
     ]);
     await runStream({ assistantId, sessionId: activeSessionId, resume: true });
   }, [activeSessionId, isGenerating, persistSessionMessages, runStream]);
+
+  const recoverForegroundStream = useCallback(async () => {
+    if (!client) return;
+    void refresh();
+    if (activeSessionId) {
+      await hydrateSessionFromSources(activeSessionId);
+    }
+
+    const recoverableStream = recoverableStreamRef.current ?? activeStreamRef.current;
+    if (!recoverableStream) return;
+
+    const statusResponse = await client
+      .streamStatus(recoverableStream.sessionId)
+      .catch(() => undefined);
+    await hydrateSessionFromSources(recoverableStream.sessionId);
+    if (!shouldResumeStreamStatus(statusResponse)) {
+      recoverableStreamRef.current = null;
+      setCanResume(false);
+      if (activeStreamRef.current?.assistantId === recoverableStream.assistantId) {
+        suppressAbortFinishRef.current[recoverableStream.assistantId] = true;
+        abortRef.current?.abort();
+      }
+      return;
+    }
+
+    if (isGeneratingRef.current) {
+      const streamIsRecentlyActive =
+        Date.now() - lastStreamEventAtRef.current < 3000;
+      if (streamIsRecentlyActive && !statusResponse?.detached) return;
+      recoverableStreamRef.current = recoverableStream;
+      setCanResume(true);
+      setStreamStatusLabel("Reconnecting");
+      abortRef.current?.abort();
+      return;
+    }
+
+    let assistantId = `${Date.now()}-assistant-background-resume`;
+    recoverableStreamRef.current = null;
+    persistSessionMessages(recoverableStream.sessionId, (current) => {
+      const openAssistant = current.find(
+        (message) => message.role === "assistant" && message.content === "",
+      );
+      if (openAssistant) {
+        assistantId = openAssistant.id;
+        return current;
+      }
+      return [
+        ...current,
+        { id: assistantId, role: "assistant", content: "" },
+      ];
+    });
+    await runStream({
+      assistantId,
+      sessionId: recoverableStream.sessionId,
+      resume: true,
+    });
+  }, [
+    activeSessionId,
+    client,
+    hydrateSessionFromSources,
+    persistSessionMessages,
+    refresh,
+    runStream,
+  ]);
+
+  useEffect(() => {
+    let previousState = AppState.currentState;
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      const wasBackgrounded =
+        previousState === "background" || previousState === "inactive";
+      previousState = nextState;
+
+      if (nextState === "background" || nextState === "inactive") {
+        if (isGeneratingRef.current) {
+          setStreamStatusLabel("Continuing in background");
+          void getBackgroundTimeRemaining().then((seconds) => {
+            if (!isGeneratingRef.current || seconds <= 0) return;
+            setStreamStatusLabel(
+              `Continuing in background (${Math.floor(seconds)}s left)`,
+            );
+          });
+        }
+        return;
+      }
+
+      if (nextState === "active" && wasBackgrounded) {
+        void recoverForegroundStream();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [recoverForegroundStream]);
+
+  useEffect(() => {
+    if (!canResume || isGenerating || AppState.currentState !== "active") return;
+    const recoverableStream = recoverableStreamRef.current;
+    if (!recoverableStream) return;
+    const recoveryKey = `${recoverableStream.sessionId}:${recoverableStream.assistantId}`;
+    if (autoRecoveryAttemptsRef.current[recoveryKey]) return;
+    autoRecoveryAttemptsRef.current[recoveryKey] = 1;
+
+    const timeout = setTimeout(() => {
+      void recoverForegroundStream();
+    }, 250);
+
+    return () => clearTimeout(timeout);
+  }, [canResume, isGenerating, recoverForegroundStream]);
 
   return {
     messages,
