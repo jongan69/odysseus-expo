@@ -35,10 +35,19 @@ Expo Go is not supported for this project.
 
 ## Requirements
 
-- Bun
-- Xcode and an iOS simulator for Apple platform verification
+- Bun for dependency installation and package scripts
+- Node.js/npm available for `npx` verification and EAS metadata commands
+- Xcode with an iOS simulator for Apple platform verification
+- Android Studio with an emulator if you need Android verification
+- A custom Expo development build; this project does not run in Expo Go
 - A reachable Odysseus server with the companion API enabled
-- A custom Expo development build for native app testing
+- An admin-generated pairing payload with `v`, `host`, `port`, and `token`
+- Same-network HTTP access for local development, or a trusted HTTPS Odysseus
+  origin for remote access
+
+The paired Odysseus server must expose the companion manifest, model/session
+discovery, chat stream, command key registry, and signed command endpoints used
+by `src/api/odysseusClient.ts`.
 
 Use `bunx expo install <package>` when adding Expo-managed dependencies so
 versions stay aligned with the installed Expo SDK.
