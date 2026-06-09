@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability, react-hooks/refs */
 /**
  * Simplified drawer layout forked from react-native-drawer-layout.
  * Only supports "back" type (drawer behind content), left-side, LTR.

@@ -4,7 +4,8 @@
     "slug": "odysseus-companion",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "chat",
+    "scheme": "odysseus",
+    "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "infoPlist": {
@@ -19,10 +20,15 @@
       "bundleIdentifier": "com.jongan69.odysseus-companion"
     },
     "android": {
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0f1724"
+      }
     },
     "web": {
-      "output": "server"
+      "output": "server",
+      "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
       "expo-router",
@@ -34,6 +40,7 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
           "dark": {
+            "image": "./assets/images/splash-icon-dark.png",
             "backgroundColor": "#000000"
           }
         }
@@ -49,6 +56,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "777dfca0-da40-4cf9-b419-05e9512744ec"
+      }
+    },
+    "owner": "jongan69"
   }
 }

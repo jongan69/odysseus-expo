@@ -1,4 +1,4 @@
-import type { Node, Parent } from "mdast";
+import type { Definition, Node, Parent, Root, RootContent } from "mdast";
 import type { Extension } from "mdast-util-from-markdown";
 import {
   Platform,
@@ -249,9 +249,6 @@ export function getKeyFromMarkdown(): Extension {
     ],
   };
 }
-
-// Resolve link and image references
-import type { Definition, Root, RootContent } from "mdast";
 
 function normalizeIdentifier(id: string): string {
   return id.trim().toLowerCase();

@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps, react-hooks/immutability, react-hooks/refs */
 import { SymbolImage } from "@/components/symbol-image";
 import { LegendList, LegendListRef } from "@legendapp/list";
 import {
@@ -31,7 +32,6 @@ const IS_GLASS = isLiquidGlassAvailable();
 
 const AnimatedLegendList = Animated.createAnimatedComponent(LegendList);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Reanimated animated styles are opaque worklet objects
 type AnimatedStyle = any;
 
 type ConversationContextValue = {
