@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ./src/api/odysseusClient.test.ts ./src/utils/chat-resume-state.test.ts ./src/utils/goal-runner.test.ts"
+    "test": "bun test ./src/api/odysseusClient.test.ts ./src/utils/chat-resume-state.test.ts ./src/utils/goal-runner.test.ts ./src/utils/server-goal-runs.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.77",

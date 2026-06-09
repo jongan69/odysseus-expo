@@ -27,6 +27,11 @@ import {
   parseGoalStatus,
   type GoalStatus,
 } from "@/utils/goal-runner";
+import {
+  isActiveServerGoalRunStatus,
+  latestActiveServerGoalRun,
+  serverGoalRunToRecord,
+} from "@/utils/server-goal-runs";
 import { shouldResumeFromStreamStatus } from "@/utils/chat-resume-state";
 import { cn } from "@/utils/tailwind";
 import {
@@ -125,10 +130,6 @@ function isRecoverableRunStatus(status?: GoalRunStatus) {
   return status === "queued" || status === "running" || status === "continuing";
 }
 
-function isActiveServerRunStatus(status?: GoalRunStatus) {
-  return status === "queued" || status === "running" || status === "continuing";
-}
-
 function isOpenTurn(turn?: GoalTurnRecord) {
   return !!turn && !turn.completedAt && !turn.response.trim();
 }
@@ -189,51 +190,6 @@ function buildInitialRun({
   };
 }
 
-function goalStatusFromServer(status: CompanionGoalRun["status"]): GoalRunStatus {
-  if (status === "queued") return "queued";
-  if (status === "running") return "running";
-  if (status === "continuing") return "continuing";
-  if (status === "paused") return "paused";
-  if (status === "complete") return "complete";
-  if (status === "blocked") return "blocked";
-  if (status === "stopped") return "stopped";
-  return "error";
-}
-
-function serverGoalRunToRecord(
-  run: CompanionGoalRun,
-  previous?: GoalRunRecord | null,
-): GoalRunRecord {
-  return {
-    version: 1,
-    id:
-      previous?.runner === "server" && previous.remoteRunId === run.id
-        ? previous.id
-        : `server-goal-${run.id}`,
-    remoteRunId: run.id,
-    runner: "server",
-    goal: run.goal,
-    sessionId: run.session_id,
-    status: goalStatusFromServer(run.status),
-    round: Number(run.round || 0),
-    startedAt: run.started_at,
-    updatedAt: run.updated_at,
-    completedAt: run.completed_at ?? undefined,
-    error: run.error ?? undefined,
-    useWeb: run.use_web === true,
-    allowTerminal: run.allow_bash === true,
-    transcript: (run.transcript ?? []).map((turn) => ({
-      id: turn.id,
-      round: Number(turn.round || 0),
-      prompt: String(turn.prompt ?? ""),
-      response: String(turn.response ?? ""),
-      status: turn.status ?? undefined,
-      startedAt: turn.started_at ?? run.started_at,
-      completedAt: turn.completed_at ?? undefined,
-    })),
-  };
-}
-
 export function PursueGoalScreen() {
   const {
     status,
@@ -277,7 +233,8 @@ export function PursueGoalScreen() {
   const goalRunRound = goalRun?.round;
   const goalRunStatus = goalRun?.status;
   const remoteRunId = goalRun?.runner === "server" ? goalRun.remoteRunId : undefined;
-  const serverRunActive = goalRun?.runner === "server" && isActiveServerRunStatus(goalRun.status);
+  const serverRunActive =
+    goalRun?.runner === "server" && isActiveServerGoalRunStatus(goalRun.status);
 
   const persistRun = useCallback(
     (next: GoalRunRecord | null) => {
@@ -314,7 +271,7 @@ export function PursueGoalScreen() {
       setAllowTerminal(next.allowTerminal);
       setError(next.error);
       setStatusDetail(
-        isActiveServerRunStatus(next.status)
+        isActiveServerGoalRunStatus(next.status)
           ? "Running on Odysseus"
           : statusLabel(next.status),
       );
@@ -349,12 +306,32 @@ export function PursueGoalScreen() {
       } else {
         setStatusDetail("Ready");
       }
+
+      if (stored && isRecoverableRunStatus(stored.status)) return;
+      if (!client || !canChat || !serverGoalRunsAvailable) return;
+      void client
+        .goalRuns()
+        .then((result) => {
+          if (cancelled) return;
+          const activeRun = latestActiveServerGoalRun(result.runs ?? []);
+          if (!activeRun) return;
+          const latestCurrent = runRef.current;
+          if (latestCurrent && isRecoverableRunStatus(latestCurrent.status)) return;
+          applyServerGoalRun(activeRun);
+        })
+        .catch(() => undefined);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [scope]);
+  }, [
+    applyServerGoalRun,
+    canChat,
+    client,
+    serverGoalRunsAvailable,
+    scope,
+  ]);
 
   const streamGoalTurn = useCallback(
     async ({
@@ -741,7 +718,7 @@ export function PursueGoalScreen() {
       try {
         const updated = await refreshServerGoalRun(remoteRunId);
         if (cancelled || !updated) return;
-        if (!isActiveServerRunStatus(updated.status) && interval) {
+        if (!isActiveServerGoalRunStatus(updated.status) && interval) {
           clearInterval(interval);
           interval = undefined;
         }
@@ -755,7 +732,7 @@ export function PursueGoalScreen() {
     };
 
     void poll();
-    if (isActiveServerRunStatus(goalRunStatus)) {
+    if (isActiveServerGoalRunStatus(goalRunStatus)) {
       interval = setInterval(() => {
         void poll();
       }, 2500);
@@ -844,7 +821,7 @@ export function PursueGoalScreen() {
     !!goalRun &&
     !busy &&
     goalRun.status !== "complete" &&
-    !(goalRun.runner === "server" && isActiveServerRunStatus(goalRun.status));
+    !(goalRun.runner === "server" && isActiveServerGoalRunStatus(goalRun.status));
   const resumeLabel =
     goalRun && goalRun.runner !== "server" && isRecoverableRunStatus(goalRun.status)
       ? "Recover"
