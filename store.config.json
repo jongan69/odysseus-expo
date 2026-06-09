@@ -13,7 +13,21 @@
         "promoText": "Pair a trusted iPhone with your Odysseus server for private companion chat and signed command workflows.",
         "privacyPolicyUrl": "https://github.com/jongan69/odysseus-expo/blob/main/PRIVACY.md",
         "supportUrl": "https://github.com/jongan69/odysseus-expo/blob/main/SUPPORT.md",
-        "marketingUrl": "https://pewdiepie-archdaemon.github.io/odysseus/"
+        "marketingUrl": "https://pewdiepie-archdaemon.github.io/odysseus/",
+        "screenshots": {
+          "APP_IPHONE_67": [
+            "store/apple/screenshot/en-US/APP_IPHONE_67/01-pairing.png",
+            "store/apple/screenshot/en-US/APP_IPHONE_67/02-chat.png",
+            "store/apple/screenshot/en-US/APP_IPHONE_67/03-commands.png",
+            "store/apple/screenshot/en-US/APP_IPHONE_67/04-settings.png"
+          ],
+          "APP_IPHONE_65": [
+            "store/apple/screenshot/en-US/APP_IPHONE_65/01-pairing.png",
+            "store/apple/screenshot/en-US/APP_IPHONE_65/02-chat.png",
+            "store/apple/screenshot/en-US/APP_IPHONE_65/03-commands.png",
+            "store/apple/screenshot/en-US/APP_IPHONE_65/04-settings.png"
+          ]
+        }
       }
     },
     "advisory": {
@@ -31,6 +45,9 @@
       "contests": "NONE",
       "gambling": false,
       "unrestrictedWebAccess": false,
+      "kidsAgeBand": null,
+      "ageRatingOverride": "NONE",
+      "koreaAgeRatingOverride": "NONE",
       "seventeenPlus": false
     },
     "release": {
