@@ -102,6 +102,7 @@ function RootDrawer() {
             router.replace(path, { withAnchor: true });
           }}
           onOpenModal={(path) => {
+            closeDrawer();
             router.navigate(path);
           }}
         />
@@ -191,6 +192,15 @@ function StackLayout() {
           sheetCornerRadius: IS_ANDROID ? 28 : undefined,
           sheetGrabberVisible: true,
           headerTransparent: GLASS,
+          headerLargeTitleShadowVisible: false,
+        }}
+      />
+
+      <Stack.Screen
+        name="pairing"
+        options={{
+          title: "Pair Server",
+          presentation: IS_ANDROID ? undefined : "modal",
           headerLargeTitleShadowVisible: false,
         }}
       />

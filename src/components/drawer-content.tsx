@@ -10,6 +10,7 @@ import {
   KeyRound,
   MessageSquarePlus,
   Plus,
+  QrCode,
   Server,
   TerminalSquare,
   Wrench,
@@ -142,6 +143,11 @@ export function DrawerContent({
           icon={MessageSquarePlus}
           label="Chat"
           onPress={() => onNavigate("/")}
+        />
+        <DrawerNavItem
+          icon={QrCode}
+          label="Scan QR Code"
+          onPress={() => onOpenModal("/pairing" as any)}
         />
         <DrawerNavItem
           icon={Server}

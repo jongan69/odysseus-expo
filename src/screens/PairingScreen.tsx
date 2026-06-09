@@ -20,7 +20,17 @@ import {
 } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 
-export function PairingScreen() {
+type PairingScreenProps = {
+  title?: string;
+  description?: string;
+  onPaired?: () => void;
+};
+
+export function PairingScreen({
+  title = "Odysseus",
+  description = "Pair with the admin-generated companion payload to unlock scoped chat and signed commands.",
+  onPaired,
+}: PairingScreenProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const [payload, setPayload] = useState("");
   const [useHttps, setUseHttps] = useState(false);
@@ -38,13 +48,14 @@ export function PairingScreen() {
       try {
         setError(undefined);
         await pairFromPayload(trimmedPayload, useHttps ? "https" : "http");
+        onPaired?.();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Invalid pairing payload");
       } finally {
         setIsPairing(false);
       }
     },
-    [isPairing, pairFromPayload, payload, useHttps],
+    [isPairing, onPaired, pairFromPayload, payload, useHttps],
   );
 
   const resumeScanner = useCallback(() => {
@@ -66,11 +77,10 @@ export function PairingScreen() {
     >
       <View className="gap-2">
         <Text className="font-mono text-3xl font-semibold text-foreground">
-          Odysseus
+          {title}
         </Text>
         <Text className="text-base leading-6 text-muted-foreground">
-          Pair with the admin-generated companion payload to unlock scoped chat
-          and signed commands.
+          {description}
         </Text>
       </View>
 

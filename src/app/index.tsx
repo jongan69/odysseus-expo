@@ -37,7 +37,7 @@ import {
 } from "@/storage/chatSessionStorage";
 import * as Haptics from "expo-haptics";
 import { Link } from "expo-router";
-import { RefreshCw, Server, WifiOff } from "lucide-react-native";
+import { QrCode, RefreshCw, Server, WifiOff } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Pressable, Text, View } from "react-native";
 
@@ -687,13 +687,12 @@ export default function ChatScreen() {
             <Icon icon={RefreshCw} className="h-4 w-4 text-background" />
             <Text className="font-semibold text-background">Retry</Text>
           </Pressable>
-          <Pressable
-            onPress={() => void companion.resetPairing()}
-            className="flex-row items-center justify-center gap-2 rounded-xl bg-muted px-4 py-3 active:bg-accent"
-          >
-            <Icon icon={Server} className="h-4 w-4 text-foreground" />
-            <Text className="font-semibold text-foreground">Pair Again</Text>
-          </Pressable>
+          <Link href={"/pairing" as any} asChild>
+            <Pressable className="flex-row items-center justify-center gap-2 rounded-xl bg-muted px-4 py-3 active:bg-accent">
+              <Icon icon={QrCode} className="h-4 w-4 text-foreground" />
+              <Text className="font-semibold text-foreground">Scan New QR</Text>
+            </Pressable>
+          </Link>
         </View>
       </View>
     );

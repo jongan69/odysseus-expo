@@ -1,9 +1,19 @@
 import { Icon } from "@/components/icon";
 import { useCompanion } from "@/state/companion-store";
-import { AlertTriangle, KeyRound, LogOut, RefreshCw, Shield, Trash2 } from "lucide-react-native";
+import { useRouter } from "expo-router";
+import {
+  AlertTriangle,
+  KeyRound,
+  LogOut,
+  QrCode,
+  RefreshCw,
+  Shield,
+  Trash2,
+} from "lucide-react-native";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 export function SettingsScreen() {
+  const router = useRouter();
   const {
     baseUrl,
     manifest,
@@ -56,6 +66,13 @@ export function SettingsScreen() {
             </Text>
           ))}
         </View>
+        <Pressable
+          onPress={() => router.navigate("/pairing" as any)}
+          className="flex-row items-center justify-center gap-2 rounded-xl bg-foreground py-3 active:opacity-80 border-continuous"
+        >
+          <Icon icon={QrCode} className="h-4 w-4 text-background" />
+          <Text className="font-semibold text-background">Scan New QR Code</Text>
+        </Pressable>
       </View>
 
       {isInsecureTransport && (

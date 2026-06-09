@@ -10,7 +10,7 @@
         "subtitle": "Private AI companion",
         "description": "Odysseus Companion connects your trusted iPhone to an Odysseus server you control.\n\nUse it to scan or paste an admin-generated companion payload, continue owner-scoped chat sessions, select server-provided models, and run manifest-driven signed commands from a private device.\n\nKey features:\n- QR and manual pairing\n- Persistent chat sessions\n- Server-sent event streaming\n- Stop and resume support for active prompts\n- Model and session selection\n- Manifest-driven command catalog\n- Device-held command signing keys\n- Local network and trusted HTTPS pairing flows\n\nOdysseus Companion is intended for users who operate or have access to an Odysseus server with the companion API enabled. The app does not include a hosted Odysseus account service.",
         "keywords": ["private,selfhosted,companion,ai,chat,commands,developer,local,assistant,server"],
-        "releaseNotes": "Adds recovery for unreachable paired Odysseus servers, including a bounded connection timeout, local-network guidance, Retry, and Pair Again actions.",
+        "releaseNotes": "Adds recovery for unreachable paired Odysseus servers, including bounded connection timeouts, local-network guidance, Retry, and a new connected-state Scan QR Code flow for pairing a different server.",
         "promoText": "Pair a trusted iPhone with your Odysseus server for private companion chat and signed command workflows.",
         "privacyPolicyUrl": "https://github.com/jongan69/odysseus-expo/blob/main/PRIVACY.md",
         "supportUrl": "https://github.com/jongan69/odysseus-expo/blob/main/SUPPORT.md",
