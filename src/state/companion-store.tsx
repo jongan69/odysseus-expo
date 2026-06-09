@@ -20,6 +20,11 @@ import {
 } from "@/storage/secureCompanionStorage";
 import {
   chatSessionStorageScope,
+  clearChatSessionState,
+  deleteChatSessionMessages,
+  loadChatSessionState,
+  setChatSessionArchived,
+  setChatSessionDeleted,
   deleteChatSessionScope,
 } from "@/storage/chatSessionStorage";
 import React, {
@@ -84,6 +89,8 @@ type CompanionContextValue = {
     command: string,
     args?: Record<string, JsonValue>,
   ) => Promise<Record<string, unknown>>;
+  archiveSession: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
   forgetAll: () => Promise<void>;
 };
 
@@ -186,9 +193,52 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
   const [manifest, setManifest] = useState<CompanionManifest>();
   const [endpoints, setEndpoints] = useState<CompanionEndpoint[]>([]);
   const [sessions, setSessions] = useState<CompanionSession[]>([]);
+  const [archivedSessionIds, setArchivedSessionIds] = useState<string[]>([]);
+  const [deletedSessionIds, setDeletedSessionIds] = useState<string[]>([]);
   const [commandKey, setCommandKey] = useState<CommandKeyPair>();
   const [error, setError] = useState<string>();
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
+
+  const storageScope = useMemo(
+    () =>
+      stored
+        ? chatSessionStorageScope({
+            baseUrl: stored.baseUrl,
+            token: stored.pairing.token,
+          })
+        : undefined,
+    [stored?.baseUrl, stored?.pairing?.token],
+  );
+
+  const archivedSessionSet = useMemo(
+    () => new Set(archivedSessionIds),
+    [archivedSessionIds],
+  );
+  const deletedSessionSet = useMemo(
+    () => new Set(deletedSessionIds),
+    [deletedSessionIds],
+  );
+
+  const visibleSessions = useMemo(
+    () =>
+      sessions.filter(
+        (session) =>
+          !archivedSessionSet.has(session.id) &&
+          !deletedSessionSet.has(session.id),
+      ),
+    [sessions, archivedSessionSet, deletedSessionSet],
+  );
+
+  const resolvedActiveSessionId = useMemo(() => {
+    if (
+      stored?.activeSessionId &&
+      !archivedSessionSet.has(stored.activeSessionId) &&
+      !deletedSessionSet.has(stored.activeSessionId)
+    ) {
+      return stored.activeSessionId;
+    }
+    return visibleSessions[0]?.id;
+  }, [stored?.activeSessionId, archivedSessionSet, deletedSessionSet, visibleSessions]);
 
   const client = useMemo(() => {
     if (!stored) return undefined;
@@ -263,6 +313,26 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     await setSecureItem(PAIRING_STORAGE_KEY, JSON.stringify(nextStored));
   }, []);
 
+  useEffect(() => {
+    const scope = storageScope;
+    if (!scope) {
+      setArchivedSessionIds([]);
+      setDeletedSessionIds([]);
+      return;
+    }
+    let cancelled = false;
+    async function hydrateSessionState() {
+      const nextState = await loadChatSessionState(scope!);
+      if (cancelled) return;
+      setArchivedSessionIds(nextState.archivedSessions);
+      setDeletedSessionIds(nextState.deletedSessions);
+    }
+    void hydrateSessionState();
+    return () => {
+      cancelled = true;
+    };
+  }, [storageScope]);
+
   const pairFromPayload = useCallback(
     async (payloadText: string, protocol: "http" | "https" = "http") => {
       const pairing = parsePairingPayload(payloadText);
@@ -332,9 +402,10 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
   const setActiveSessionId = useCallback(
     async (sessionId: string) => {
       if (!stored) return;
+      if (archivedSessionSet.has(sessionId) || deletedSessionSet.has(sessionId)) return;
       await persistStored({ ...stored, activeSessionId: sessionId });
     },
-    [persistStored, stored],
+    [archivedSessionSet, deletedSessionSet, persistStored, stored],
   );
 
   const setSelectedModel = useCallback(
@@ -382,6 +453,45 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     [client, ensureCommandKeyRegistered],
   );
 
+  const archiveSession = useCallback(
+    async (sessionId: string) => {
+      if (!stored || !storageScope) return;
+      await setChatSessionArchived(storageScope, sessionId, true);
+      setArchivedSessionIds((prev) => {
+        const next = new Set(prev);
+        next.add(sessionId);
+        return Array.from(next);
+      });
+      setDeletedSessionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return Array.from(next);
+      });
+    },
+    [storageScope, stored],
+  );
+
+  const deleteSession = useCallback(
+    async (sessionId: string) => {
+      if (!stored || !storageScope) return;
+      await Promise.all([
+        deleteChatSessionMessages(storageScope, sessionId),
+        setChatSessionDeleted(storageScope, sessionId, true),
+      ]);
+      setDeletedSessionIds((prev) => {
+        const next = new Set(prev);
+        next.add(sessionId);
+        return Array.from(next);
+      });
+      setArchivedSessionIds((prev) => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return Array.from(next);
+      });
+    },
+    [storageScope, stored],
+  );
+
   const forgetAll = useCallback(async () => {
     const currentScope = stored
       ? chatSessionStorageScope({
@@ -400,11 +510,14 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       deleteSecureItem(PAIRING_STORAGE_KEY),
       deleteSecureItem(COMMAND_KEY_STORAGE_KEY),
       currentScope ? deleteChatSessionScope(currentScope) : Promise.resolve(),
+      currentScope ? clearChatSessionState(currentScope) : Promise.resolve(),
     ]);
     setStored(null);
     setManifest(undefined);
     setEndpoints([]);
     setSessions([]);
+    setArchivedSessionIds([]);
+    setDeletedSessionIds([]);
     setCommandKey(undefined);
     setError(undefined);
     setStatus("unpaired");
@@ -419,12 +532,16 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     setManifest(undefined);
     setEndpoints([]);
     setSessions([]);
+    setArchivedSessionIds([]);
+    setDeletedSessionIds([]);
     setCommandKey(undefined);
     setError(undefined);
     setStatus("unpaired");
   }, []);
 
-  const activeSession = sessions.find((session) => session.id === stored?.activeSessionId);
+  const activeSession = visibleSessions.find(
+    (session) => session.id === resolvedActiveSessionId,
+  );
   const tokenScopes = useMemo(
     () => manifest?.auth?.token_scopes ?? [],
     [manifest?.auth?.token_scopes],
@@ -449,8 +566,8 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       pairing: stored?.pairing,
       manifest,
       endpoints,
-      sessions,
-      activeSessionId: stored?.activeSessionId,
+      sessions: visibleSessions,
+      activeSessionId: resolvedActiveSessionId,
       activeSession,
       selectedEndpointId: stored?.selectedEndpointId,
       selectedModel,
@@ -472,6 +589,8 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       ensureCommandKeyRegistered,
       revokeCommandKey,
       sendCommand,
+      archiveSession,
+      deleteSession,
       forgetAll,
     }),
     [
@@ -490,15 +609,18 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       pairFromPayload,
       refresh,
       resetPairing,
+      archiveSession,
+      deleteSession,
       revokeCommandKey,
       selectedEndpoint,
       selectedModel,
       sendCommand,
-      sessions,
+      visibleSessions,
+      resolvedActiveSessionId,
+      stored,
       setActiveSessionId,
       setSelectedModel,
       status,
-      stored,
       tokenScopes,
     ],
   );

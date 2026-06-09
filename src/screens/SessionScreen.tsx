@@ -1,7 +1,15 @@
 import { Icon } from "@/components/icon";
 import { useCompanion } from "@/state/companion-store";
 import { cn } from "@/utils/tailwind";
-import { Check, MessageSquarePlus, RefreshCw, Search, Server } from "lucide-react-native";
+import {
+  Archive,
+  Check,
+  MessageSquarePlus,
+  RefreshCw,
+  Search,
+  Server,
+  Trash2,
+} from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 
@@ -15,6 +23,8 @@ export function SessionScreen() {
     selectedEndpoint,
     setSelectedModel,
     setActiveSessionId,
+    archiveSession,
+    deleteSession,
     createSession,
     refresh,
     error,
@@ -23,6 +33,7 @@ export function SessionScreen() {
   const [rag, setRag] = useState(false);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busySessionId, setBusySessionId] = useState<string>();
 
   const model = selectedModel ?? selectedEndpoint?.models?.[0];
   const filteredSessions = useMemo(() => {
@@ -52,6 +63,26 @@ export function SessionScreen() {
       });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleArchiveSession(sessionId: string) {
+    if (busySessionId) return;
+    setBusySessionId(sessionId);
+    try {
+      await archiveSession(sessionId);
+    } finally {
+      setBusySessionId(undefined);
+    }
+  }
+
+  async function handleDeleteSession(sessionId: string) {
+    if (busySessionId) return;
+    setBusySessionId(sessionId);
+    try {
+      await deleteSession(sessionId);
+    } finally {
+      setBusySessionId(undefined);
     }
   }
 
@@ -189,25 +220,49 @@ export function SessionScreen() {
         </View>
         {filteredSessions.map((session) => {
           const selected = session.id === activeSessionId;
+          const isBusy = busySessionId === session.id;
           return (
-            <Pressable
+            <View
               key={session.id}
-              onPress={() => setActiveSessionId(session.id)}
               className={cn(
-                "rounded-[18px] border p-4 active:bg-muted border-continuous",
+                "flex-row gap-2 rounded-[18px] border border-continuous p-3",
                 selected ? "border-foreground bg-muted" : "border-border bg-card",
               )}
             >
-              <View className="flex-row items-center gap-2">
-                <Text className="flex-1 text-base font-semibold text-foreground">
+              <Pressable
+                onPress={() => setActiveSessionId(session.id)}
+                className="flex-1 rounded-xl"
+              >
+                <Text className="text-base font-semibold text-foreground">
                   {session.name || "Companion"}
                 </Text>
-                {selected && <Icon icon={Check} className="h-4 w-4 text-foreground" />}
+                <Text className="mt-1 font-mono text-xs text-muted-foreground">
+                  {session.model || "model pending"} · {session.message_count} messages
+                </Text>
+              </Pressable>
+              <View className="flex-row items-center gap-2">
+                <Pressable
+                  disabled={!!isBusy}
+                  onPress={() => handleArchiveSession(session.id)}
+                  className={cn(
+                    "h-10 w-10 items-center justify-center rounded-full bg-muted active:bg-accent",
+                    isBusy && "opacity-50",
+                  )}
+                >
+                  <Icon icon={Archive} className="h-4 w-4 text-foreground" />
+                </Pressable>
+                <Pressable
+                  disabled={!!isBusy}
+                  onPress={() => handleDeleteSession(session.id)}
+                  className={cn(
+                    "h-10 w-10 items-center justify-center rounded-full bg-muted active:bg-accent",
+                    isBusy && "opacity-50",
+                  )}
+                >
+                  <Icon icon={Trash2} className="h-4 w-4 text-foreground" />
+                </Pressable>
               </View>
-              <Text className="mt-1 font-mono text-xs text-muted-foreground">
-                {session.model || "model pending"} · {session.message_count} messages
-              </Text>
-            </Pressable>
+            </View>
           );
         })}
         {!filteredSessions.length && (

@@ -88,7 +88,15 @@ export function Sidebar({
   onCollapse: () => void;
 }) {
   const pathname = usePathname();
-  const { sessions, activeSessionId, setActiveSessionId, manifest, status } =
+  const {
+    sessions,
+    activeSessionId,
+    setActiveSessionId,
+    archiveSession,
+    deleteSession,
+    manifest,
+    status,
+  } =
     useCompanion();
   const initials = (manifest?.owner || "OD")
     .split(/[\s._-]+/)
@@ -232,12 +240,22 @@ export function Sidebar({
                         <Share size={14} strokeWidth={1.5} />
                         Share
                       </ContextMenu.Item>
-                      <ContextMenu.Item className={MENU_ITEM_CLASS}>
+                      <ContextMenu.Item
+                        className={MENU_ITEM_CLASS}
+                        onSelect={() => {
+                          void archiveSession(session.id);
+                        }}
+                      >
                         <Archive size={14} strokeWidth={1.5} />
                         Archive
                       </ContextMenu.Item>
                       <ContextMenu.Separator className={MENU_SEPARATOR_CLASS} />
-                      <ContextMenu.Item className={MENU_DESTRUCTIVE_CLASS}>
+                      <ContextMenu.Item
+                        className={MENU_DESTRUCTIVE_CLASS}
+                        onSelect={() => {
+                          void deleteSession(session.id);
+                        }}
+                      >
                         <Trash2 size={14} strokeWidth={1.5} />
                         Delete
                       </ContextMenu.Item>
