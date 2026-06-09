@@ -28,6 +28,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -68,6 +69,7 @@ type CompanionContextValue = {
   client?: OdysseusClient;
   pairFromPayload: (payloadText: string, protocol?: "http" | "https") => Promise<void>;
   refresh: () => Promise<void>;
+  resetPairing: () => Promise<void>;
   createSession: (input: {
     name?: string;
     endpointId?: string;
@@ -146,6 +148,19 @@ function parseStoredCommandKey(value: string | null): CommandKeyPair | undefined
   }
 }
 
+function connectionErrorMessage(baseUrl: string | undefined, err: unknown) {
+  const detail = err instanceof Error ? err.message : "Unable to reach Odysseus";
+  const target = baseUrl ?? "the paired Odysseus server";
+  const networkHint =
+    "If this is a local HTTP pairing, your iPhone must be on the same Wi-Fi or VPN as the machine running Odysseus. For off-network use, pair again with a reachable HTTPS tunnel or public Odysseus origin.";
+
+  if (/timed out|could not reach|network request failed/i.test(detail)) {
+    return `Unable to reach ${target}. ${networkHint}`;
+  }
+
+  return detail;
+}
+
 type CompanionSnapshot = {
   manifest: CompanionManifest;
   endpoints: CompanionEndpoint[];
@@ -173,6 +188,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
   const [sessions, setSessions] = useState<CompanionSession[]>([]);
   const [commandKey, setCommandKey] = useState<CommandKeyPair>();
   const [error, setError] = useState<string>();
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   const client = useMemo(() => {
     if (!stored) return undefined;
@@ -188,14 +204,23 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (!client) return;
-    setError(undefined);
-    try {
-      applySnapshot(await fetchCompanionSnapshot(client));
-    } catch (err) {
-      setStatus("error");
-      setError(err instanceof Error ? err.message : "Unable to refresh Odysseus");
-    }
-  }, [applySnapshot, client]);
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+
+    const refreshPromise = (async () => {
+      try {
+        applySnapshot(await fetchCompanionSnapshot(client));
+        setError(undefined);
+      } catch (err) {
+        setStatus("error");
+        setError(connectionErrorMessage(stored?.baseUrl, err));
+      } finally {
+        refreshInFlightRef.current = null;
+      }
+    })();
+
+    refreshInFlightRef.current = refreshPromise;
+    return refreshPromise;
+  }, [applySnapshot, client, stored?.baseUrl]);
 
   useEffect(() => {
     let cancelled = false;
@@ -229,7 +254,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     if (!client || !stored) return;
     const interval = setInterval(() => {
       void refresh();
-    }, 5000);
+    }, 15000);
     return () => clearInterval(interval);
   }, [client, refresh, stored]);
 
@@ -250,10 +275,9 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
         await persistStored(nextStored);
         applySnapshot(snapshot);
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Unable to connect to Odysseus";
+        const message = connectionErrorMessage(baseUrl, err);
         setError(message);
-        throw new Error(`Unable to pair with ${baseUrl}: ${message}`);
+        throw new Error(message);
       }
     },
     [applySnapshot, persistStored],
@@ -381,6 +405,20 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     setStatus("unpaired");
   }, [client, commandKey, stored]);
 
+  const resetPairing = useCallback(async () => {
+    await Promise.all([
+      deleteSecureItem(PAIRING_STORAGE_KEY),
+      deleteSecureItem(COMMAND_KEY_STORAGE_KEY),
+    ]);
+    setStored(null);
+    setManifest(undefined);
+    setEndpoints([]);
+    setSessions([]);
+    setCommandKey(undefined);
+    setError(undefined);
+    setStatus("unpaired");
+  }, []);
+
   const activeSession = sessions.find((session) => session.id === stored?.activeSessionId);
   const tokenScopes = useMemo(
     () => manifest?.auth?.token_scopes ?? [],
@@ -422,6 +460,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       client,
       pairFromPayload,
       refresh,
+      resetPairing,
       createSession,
       setActiveSessionId,
       setSelectedModel,
@@ -445,6 +484,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       manifest,
       pairFromPayload,
       refresh,
+      resetPairing,
       revokeCommandKey,
       selectedEndpoint,
       selectedModel,

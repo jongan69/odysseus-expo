@@ -6,6 +6,7 @@ import {
 } from "@/crypto/companionSigning";
 
 const PAIRING_VERSION = 1;
+const DEFAULT_JSON_REQUEST_TIMEOUT_MS = 10000;
 
 export type PairingPayload = {
   v: number;
@@ -140,20 +141,51 @@ async function requestJson<T>(
   baseUrl: string,
   path: string,
   token: string,
-  init: RequestInit = {},
+  init: RequestInit & { timeoutMs?: number } = {},
 ): Promise<T> {
-  const response = await fetch(joinUrl(baseUrl, path), {
-    ...init,
-    headers: {
-      ...authHeaders(token),
-      ...(init.headers ?? {}),
-    },
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`${path} failed: ${response.status}${text ? ` ${text}` : ""}`);
+  const { headers, signal, timeoutMs = DEFAULT_JSON_REQUEST_TIMEOUT_MS, ...requestInit } = init;
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  const abortRequest = () => controller.abort();
+  if (signal?.aborted) {
+    controller.abort();
+  } else {
+    signal?.addEventListener("abort", abortRequest, { once: true });
   }
-  return response.json();
+
+  if (timeoutMs > 0) {
+    timeout = setTimeout(() => controller.abort(), timeoutMs);
+  }
+
+  try {
+    const response = await fetch(joinUrl(baseUrl, path), {
+      ...requestInit,
+      signal: controller.signal,
+      headers: {
+        ...authHeaders(token),
+        ...(headers ?? {}),
+      },
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`${path} failed: ${response.status}${text ? ` ${text}` : ""}`);
+    }
+    return response.json();
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(
+        `${path} timed out after ${Math.round(timeoutMs / 1000)}s while connecting to ${baseUrl}`,
+      );
+    }
+    if (err instanceof TypeError) {
+      throw new Error(`${path} could not reach ${baseUrl}`);
+    }
+    throw err;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortRequest);
+  }
 }
 
 export function parsePairingPayload(input: string | unknown): PairingPayload {

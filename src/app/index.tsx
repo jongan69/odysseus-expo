@@ -37,9 +37,9 @@ import {
 } from "@/storage/chatSessionStorage";
 import * as Haptics from "expo-haptics";
 import { Link } from "expo-router";
-import { RefreshCw, Server } from "lucide-react-native";
+import { RefreshCw, Server, WifiOff } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Pressable, Text, View } from "react-native";
 
 const STREAMING_THROTTLE_MS = 32;
 const FINISHED_STREAM_STATUSES = new Set([
@@ -663,13 +663,38 @@ export default function ChatScreen() {
 
   if (companion.status === "error") {
     return (
-      <View className="flex-1 items-center justify-center gap-3 bg-background px-8">
+      <View className="flex-1 items-center justify-center gap-4 bg-background px-7">
+        <View className="h-14 w-14 items-center justify-center rounded-full bg-muted">
+          <Icon icon={WifiOff} className="h-7 w-7 text-muted-foreground" />
+        </View>
         <Text className="text-center text-lg font-semibold text-foreground">
-          Connection Failed
+          Server Unreachable
         </Text>
+        {companion.baseUrl && (
+          <Text selectable className="text-center font-mono text-xs text-muted-foreground">
+            {companion.baseUrl}
+          </Text>
+        )}
         <Text selectable className="text-center text-sm leading-5 text-muted-foreground">
-          {companion.error ?? "Unable to reach the paired Odysseus server."}
+          {companion.error ??
+            "Unable to reach the paired Odysseus server. If this is a local pairing, connect to the same network or pair again with a reachable HTTPS origin."}
         </Text>
+        <View className="mt-2 w-full gap-3">
+          <Pressable
+            onPress={() => void companion.refresh()}
+            className="flex-row items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-3 active:opacity-80"
+          >
+            <Icon icon={RefreshCw} className="h-4 w-4 text-background" />
+            <Text className="font-semibold text-background">Retry</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void companion.resetPairing()}
+            className="flex-row items-center justify-center gap-2 rounded-xl bg-muted px-4 py-3 active:bg-accent"
+          >
+            <Icon icon={Server} className="h-4 w-4 text-foreground" />
+            <Text className="font-semibold text-foreground">Pair Again</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
