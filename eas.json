@@ -30,6 +30,11 @@
         "ascAppId": "6778221269",
         "metadataPath": "./store.config.js"
       }
+    },
+    "testflight": {
+      "ios": {
+        "ascAppId": "6778221269"
+      }
     }
   }
 }

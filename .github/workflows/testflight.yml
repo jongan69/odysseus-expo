@@ -18,8 +18,6 @@ jobs:
     name: Build and submit iOS
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    env:
-      APP_REVIEW_PHONE: ${{ secrets.APP_REVIEW_PHONE }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -50,19 +48,12 @@ jobs:
           bun run typecheck
           bun run lint
 
-      - name: Check required release secrets
-        run: |
-          test -n "$APP_REVIEW_PHONE" || {
-            echo "APP_REVIEW_PHONE GitHub secret is required for store.config.js"
-            exit 1
-          }
-
       - name: Build and submit to TestFlight
         run: >
           eas build
           --platform ios
           --profile production
-          --auto-submit
+          --auto-submit-with-profile testflight
           --non-interactive
           --message "GitHub Actions TestFlight build ${{ github.sha }}"
           --what-to-test "Automated TestFlight build from ${{ github.sha }}"
