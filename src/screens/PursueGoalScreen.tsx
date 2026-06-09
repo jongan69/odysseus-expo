@@ -1,5 +1,13 @@
 import { Icon } from "@/components/icon";
-import { type ChatStreamEvent } from "@/api/odysseusClient";
+import {
+  isChatStreamInactiveError,
+  type ChatStreamEvent,
+  type CompanionHistoryMessage,
+} from "@/api/odysseusClient";
+import {
+  beginBackgroundSession,
+  endBackgroundSession,
+} from "@/native/backgroundSession";
 import { PairingScreen } from "@/screens/PairingScreen";
 import { useCompanion } from "@/state/companion-store";
 import {
@@ -18,6 +26,7 @@ import {
   parseGoalStatus,
   type GoalStatus,
 } from "@/utils/goal-runner";
+import { shouldResumeFromStreamStatus } from "@/utils/chat-resume-state";
 import { cn } from "@/utils/tailwind";
 import {
   AlertTriangle,
@@ -107,6 +116,42 @@ function turnStatusLabel(status?: GoalStatus) {
   }
 }
 
+function isRecoverableRunStatus(status?: GoalRunStatus) {
+  return status === "running" || status === "continuing";
+}
+
+function isOpenTurn(turn?: GoalTurnRecord) {
+  return !!turn && !turn.completedAt && !turn.response.trim();
+}
+
+function contentToText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((block) => {
+        if (typeof block === "string") return block;
+        if (block && typeof block === "object" && "text" in block) {
+          return String((block as { text?: unknown }).text ?? "");
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (content === undefined || content === null) return "";
+  return String(content);
+}
+
+function latestAssistantText(history: CompanionHistoryMessage[]) {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message?.role !== "assistant") continue;
+    const text = contentToText(message.content).trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 function buildInitialRun({
   goal,
   sessionId,
@@ -155,6 +200,7 @@ export function PursueGoalScreen() {
   const runRef = useRef<GoalRunRecord | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const stopRequestedRef = useRef(false);
+  const autoResumeKeyRef = useRef<string | undefined>(undefined);
   const scope = useMemo(
     () =>
       chatSessionStorageScope({
@@ -168,6 +214,9 @@ export function PursueGoalScreen() {
       manifest?.features?.remote_development?.raw_shell_enabled,
   );
   const effectiveAllowTerminal = allowTerminal && terminalAvailable;
+  const goalRunId = goalRun?.id;
+  const goalRunRound = goalRun?.round;
+  const goalRunStatus = goalRun?.status;
 
   const persistRun = useCallback(
     (next: GoalRunRecord | null) => {
@@ -219,6 +268,153 @@ export function PursueGoalScreen() {
     };
   }, [scope]);
 
+  const streamGoalTurn = useCallback(
+    async ({
+      current,
+      prompt,
+      resume,
+    }: {
+      current: GoalRunRecord;
+      prompt?: string;
+      resume?: boolean;
+    }) => {
+      if (!client) throw new Error("Pair with Odysseus first");
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const backgroundSessionId = await beginBackgroundSession(
+        "Odysseus goal loop",
+      );
+      let streamed = "";
+
+      const onEvent = (event: ChatStreamEvent) => {
+        if (event.type === "delta") {
+          streamed += event.text;
+          setLiveText(streamed);
+          setStatusDetail(event.thinking ? "Thinking" : "Streaming");
+          return;
+        }
+        if (event.type === "error") {
+          throw new Error(event.error);
+        }
+        const label = eventStatusLabel(event);
+        if (label) setStatusDetail(label);
+      };
+
+      try {
+        if (resume) {
+          await client.resumeStream(current.sessionId, onEvent, controller.signal);
+        } else {
+          await client.chatStream(
+            {
+              sessionId: current.sessionId,
+              message: prompt ?? "",
+              mode: "agent",
+              useWeb: current.useWeb,
+              allowWebSearch: current.useWeb,
+              allowBash: current.allowTerminal && terminalAvailable,
+              signal: controller.signal,
+            },
+            onEvent,
+          );
+        }
+        return streamed;
+      } finally {
+        await endBackgroundSession(backgroundSessionId);
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+        }
+      }
+    },
+    [client, terminalAvailable],
+  );
+
+  const finishGoalTurn = useCallback(
+    (current: GoalRunRecord, turn: GoalTurnRecord, streamed: string) => {
+      const parsedStatus = parseGoalStatus(streamed);
+      const completedTurn = {
+        ...turn,
+        response: streamed || "Done.",
+        status: parsedStatus,
+        completedAt: nowIso(),
+      };
+      const nextTranscript = current.transcript.map((item) =>
+        item.id === turn.id ? completedTurn : item,
+      );
+      const nextStatus =
+        parsedStatus === "complete"
+          ? "complete"
+          : parsedStatus === "blocked"
+          ? "blocked"
+          : "continuing";
+      const nextRun = {
+        ...current,
+        status: nextStatus,
+        completedAt: parsedStatus === "complete" ? nowIso() : undefined,
+        updatedAt: nowIso(),
+        transcript: nextTranscript,
+      } satisfies GoalRunRecord;
+
+      persistRun(nextRun);
+      setLiveText("");
+      setStatusDetail(parsedStatus ? turnStatusLabel(parsedStatus) : "Continuing");
+
+      return { nextRun, parsedStatus };
+    },
+    [persistRun],
+  );
+
+  const recoverOpenGoalTurn = useCallback(
+    async (current: GoalRunRecord, turn: GoalTurnRecord) => {
+      if (!client) throw new Error("Pair with Odysseus first");
+      setStatusDetail("Checking active goal stream");
+
+      let resumeActiveStream = true;
+      try {
+        resumeActiveStream = shouldResumeFromStreamStatus(
+          await client.streamStatus(current.sessionId),
+        );
+      } catch {
+        resumeActiveStream = true;
+      }
+
+      if (resumeActiveStream) {
+        setStatusDetail("Resuming active goal stream");
+        try {
+          const resumed = await streamGoalTurn({ current, resume: true });
+          if (resumed.trim()) {
+            return finishGoalTurn(current, turn, resumed);
+          }
+        } catch (err) {
+          if (!isChatStreamInactiveError(err)) throw err;
+        }
+      }
+
+      setStatusDetail("Recovering completed goal turn");
+      try {
+        const history = await client.history(current.sessionId);
+        const recovered = latestAssistantText(history.history ?? []);
+        const previousResponses = new Set(
+          current.transcript
+            .filter((item) => item.id !== turn.id)
+            .map((item) => item.response.trim())
+            .filter(Boolean),
+        );
+        if (recovered && !previousResponses.has(recovered)) {
+          return finishGoalTurn(current, turn, recovered);
+        }
+      } catch {
+        // Fall through to a marked continuation turn below.
+      }
+
+      return finishGoalTurn(
+        current,
+        turn,
+        "The previous goal stream ended before this device recovered a final response.",
+      );
+    },
+    [client, finishGoalTurn, streamGoalTurn],
+  );
+
   const runGoalLoop = useCallback(
     async (startingRun: GoalRunRecord) => {
       if (!client) throw new Error("Pair with Odysseus first");
@@ -234,6 +430,20 @@ export function PursueGoalScreen() {
             patchRun({ status: "paused" });
             break;
           }
+
+          const latestTurn = current.transcript[current.transcript.length - 1];
+          if (isOpenTurn(latestTurn)) {
+            const recovered = await recoverOpenGoalTurn(current, latestTurn);
+            current = recovered.nextRun;
+            if (
+              recovered.parsedStatus === "complete" ||
+              recovered.parsedStatus === "blocked"
+            ) {
+              break;
+            }
+            continue;
+          }
+
           if (current.round >= AUTO_GOAL_ROUND_LIMIT) {
             patchRun({
               status: "paused",
@@ -276,66 +486,16 @@ export function PursueGoalScreen() {
           setStatusDetail(round === 1 ? "Starting goal" : `Continuing turn ${round}`);
           setLiveText("");
 
-          const controller = new AbortController();
-          abortRef.current = controller;
-          let streamed = "";
+          const streamed = await streamGoalTurn({ current, prompt });
+          const finished = finishGoalTurn(current, turn, streamed);
+          current = finished.nextRun;
 
-          await client.chatStream(
-            {
-              sessionId: current.sessionId,
-              message: prompt,
-              mode: "agent",
-              useWeb: current.useWeb,
-              allowWebSearch: current.useWeb,
-              allowBash: current.allowTerminal && terminalAvailable,
-              signal: controller.signal,
-            },
-            (event) => {
-              if (event.type === "delta") {
-                streamed += event.text;
-                setLiveText(streamed);
-                setStatusDetail(event.thinking ? "Thinking" : "Streaming");
-                return;
-              }
-              if (event.type === "error") {
-                throw new Error(event.error);
-              }
-              const label = eventStatusLabel(event);
-              if (label) setStatusDetail(label);
-            },
-          );
-
-          const parsedStatus = parseGoalStatus(streamed);
-          const completedTurn = {
-            ...turn,
-            response: streamed || "Done.",
-            status: parsedStatus,
-            completedAt: nowIso(),
-          };
-          const nextTranscript = current.transcript.map((item) =>
-            item.id === turn.id ? completedTurn : item,
-          );
-          const nextStatus =
-            parsedStatus === "complete"
-              ? "complete"
-              : parsedStatus === "blocked"
-              ? "blocked"
-              : "continuing";
-
-          current = {
-            ...current,
-            status: nextStatus,
-            completedAt: parsedStatus === "complete" ? nowIso() : undefined,
-            updatedAt: nowIso(),
-            transcript: nextTranscript,
-          };
-          persistRun(current);
-          setLiveText("");
-          setStatusDetail(
-            parsedStatus ? turnStatusLabel(parsedStatus) : "Continuing",
-          );
-
-          if (parsedStatus === "complete" || parsedStatus === "blocked") break;
+          if (
+            finished.parsedStatus === "complete" ||
+            finished.parsedStatus === "blocked"
+          ) {
+            break;
+          }
         }
       } catch (err) {
         const nextError =
@@ -353,7 +513,14 @@ export function PursueGoalScreen() {
         setBusy(false);
       }
     },
-    [client, patchRun, persistRun, terminalAvailable],
+    [
+      client,
+      finishGoalTurn,
+      patchRun,
+      persistRun,
+      recoverOpenGoalTurn,
+      streamGoalTurn,
+    ],
   );
 
   const startGoal = useCallback(async () => {
@@ -409,6 +576,31 @@ export function PursueGoalScreen() {
     await runGoalLoop(nextRun);
   }, [busy, effectiveAllowTerminal, persistRun, runGoalLoop, useWeb]);
 
+  useEffect(() => {
+    if (!goalRunId || goalRunRound === undefined || busy || !client || !canChat) {
+      return;
+    }
+    if (!isRecoverableRunStatus(goalRunStatus)) return;
+
+    const autoResumeKey = `${goalRunId}:${goalRunRound}`;
+    if (autoResumeKeyRef.current === autoResumeKey) return;
+    autoResumeKeyRef.current = autoResumeKey;
+
+    const timeout = setTimeout(() => {
+      void resumeGoal();
+    }, 250);
+
+    return () => clearTimeout(timeout);
+  }, [
+    busy,
+    canChat,
+    client,
+    goalRunId,
+    goalRunRound,
+    goalRunStatus,
+    resumeGoal,
+  ]);
+
   const stopGoal = useCallback(async () => {
     stopRequestedRef.current = true;
     setStatusDetail("Stopping");
@@ -457,9 +649,9 @@ export function PursueGoalScreen() {
   const canResume =
     !!goalRun &&
     !busy &&
-    goalRun.status !== "complete" &&
-    goalRun.status !== "running" &&
-    goalRun.status !== "continuing";
+    goalRun.status !== "complete";
+  const resumeLabel =
+    goalRun && isRecoverableRunStatus(goalRun.status) ? "Recover" : "Resume";
   const primaryDisabled = busy || !goalInput.trim();
 
   return (
@@ -527,7 +719,7 @@ export function PursueGoalScreen() {
               className="flex-row items-center justify-center gap-2 rounded-xl bg-muted px-4 py-3 active:bg-accent border-continuous"
             >
               <Icon icon={RefreshCw} className="h-4 w-4 text-foreground" />
-              <Text className="font-semibold text-foreground">Resume</Text>
+              <Text className="font-semibold text-foreground">{resumeLabel}</Text>
             </Pressable>
           )}
           {busy && (
