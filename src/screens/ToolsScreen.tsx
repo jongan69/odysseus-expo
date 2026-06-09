@@ -12,6 +12,7 @@ import {
   Paperclip,
   ShieldCheck,
   StickyNote,
+  Target,
   TerminalSquare,
   Wrench,
 } from "lucide-react-native";
@@ -24,7 +25,7 @@ type ToolFeature = {
   description: string;
   enabled: boolean;
   detail: string;
-  href?: "/commands";
+  href?: "/commands" | "/goal";
   icon: LucideIcon;
 };
 
@@ -33,7 +34,7 @@ function endpointAvailable(paths: string[], needle: string) {
 }
 
 export function ToolsScreen() {
-  const { canUseCommands, commandCatalog, manifest } = useCompanion();
+  const { canChat, canUseCommands, commandCatalog, manifest } = useCompanion();
   const commandNames = useMemo(
     () => new Set(commandCatalog.map((command) => command.name)),
     [commandCatalog],
@@ -55,6 +56,14 @@ export function ToolsScreen() {
   const checksEnabled = commandNames.has("run_check");
 
   const features: ToolFeature[] = [
+    {
+      title: "Pursue Goal",
+      description: "Run a persistent agent loop until a task is complete or blocked.",
+      enabled: canChat,
+      detail: canChat ? "Agent loop" : "Chat scope required",
+      href: canChat ? "/goal" : undefined,
+      icon: Target,
+    },
     {
       title: "Signed Commands",
       description: "Manifest-driven remote development commands with device keys.",
@@ -223,7 +232,7 @@ function FeatureRow({ feature }: { feature: ToolFeature }) {
 
   if (!feature.enabled || !feature.href) return body;
   return (
-    <Link href={feature.href} asChild>
+    <Link href={feature.href as any} asChild>
       {body}
     </Link>
   );

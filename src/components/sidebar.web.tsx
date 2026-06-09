@@ -15,6 +15,7 @@ import {
   Server,
   Share,
   SquarePen,
+  Target,
   Trash2,
   TerminalSquare,
   User,
@@ -61,6 +62,7 @@ function SidebarTooltip({
 const NAV_ITEMS = [
   { href: "/", label: "Chat", icon: MessageSquarePlus },
   { href: "/chats", label: "Sessions", icon: Server },
+  { href: "/goal", label: "Pursue Goal", icon: Target },
   { href: "/commands", label: "Commands", icon: TerminalSquare },
   { href: "/tools", label: "Tools", icon: Wrench },
   { href: "/settings", label: "Settings", icon: Settings },

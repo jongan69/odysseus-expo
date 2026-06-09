@@ -12,6 +12,7 @@ import {
   Plus,
   QrCode,
   Server,
+  Target,
   TerminalSquare,
   Wrench,
 } from "lucide-react-native";
@@ -153,6 +154,11 @@ export function DrawerContent({
           icon={Server}
           label="Sessions"
           onPress={() => onNavigate("/chats")}
+        />
+        <DrawerNavItem
+          icon={Target}
+          label="Pursue Goal"
+          onPress={() => onNavigate("/goal" as any)}
         />
         <DrawerNavItem
           icon={TerminalSquare}

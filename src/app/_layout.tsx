@@ -174,6 +174,15 @@ function StackLayout() {
       />
 
       <Stack.Screen
+        name="goal"
+        options={{
+          title: "Pursue Goal",
+          animation: "none",
+          headerLargeTitleShadowVisible: false,
+        }}
+      />
+
+      <Stack.Screen
         name="tools"
         options={{
           title: "Tools",
