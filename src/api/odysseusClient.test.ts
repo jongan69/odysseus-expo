@@ -141,7 +141,10 @@ describe("OdysseusClient", () => {
         base_url: "https://odysseus-mac.taildc85bf.ts.net",
         token,
       });
-      const client = new OdysseusClient(companionBaseUrlFromPairing(payload), token);
+      const client = new OdysseusClient(
+        companionBaseUrlFromPairing(payload),
+        `\n ${token}\t`,
+      );
 
       await client.manifest();
 

@@ -170,7 +170,7 @@ function joinUrl(baseUrl: string, path: string) {
 }
 
 function authHeaders(token: string) {
-  return { Authorization: `Bearer ${token}` };
+  return { Authorization: `Bearer ${token.trim()}` };
 }
 
 async function requestJson<T>(
