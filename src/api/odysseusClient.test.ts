@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { OdysseusClient } from "./odysseusClient";
+import {
+  OdysseusApiError,
+  OdysseusClient,
+  chatEventFromJson,
+  isChatStreamInactiveError,
+} from "./odysseusClient";
 import { companionBaseUrlFromPairing, parsePairingPayload } from "./pairing";
 
 const token = "ody_test_token";
@@ -83,6 +88,36 @@ describe("pairing payload parsing", () => {
 });
 
 describe("OdysseusClient", () => {
+  test("chat event parsing preserves thinking deltas", () => {
+    expect(
+      chatEventFromJson({
+        delta: "checking the request",
+        thinking: true,
+      }),
+    ).toEqual({
+      type: "delta",
+      text: "checking the request",
+      thinking: true,
+    });
+  });
+
+  test("chat event parsing exposes tool events", () => {
+    expect(
+      chatEventFromJson({
+        type: "tool_start",
+        tool: "read_file",
+        command: "README.md",
+      }),
+    ).toEqual({
+      type: "tool_start",
+      data: {
+        type: "tool_start",
+        tool: "read_file",
+        command: "README.md",
+      },
+    });
+  });
+
   test("manifest uses the selected base URL and bearer token", async () => {
     const requests: { url: string; headers: Headers }[] = [];
     const originalFetch = globalThis.fetch;
@@ -114,6 +149,50 @@ describe("OdysseusClient", () => {
         "https://odysseus-mac.taildc85bf.ts.net/api/companion/manifest",
       );
       expect(requests[0]?.headers.get("Authorization")).toBe(`Bearer ${token}`);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("distinguishes inactive stream errors by status and path", () => {
+    const resumeError = new OdysseusApiError("/api/chat/resume/abc", 404);
+    const statusError = new OdysseusApiError("/api/chat/stream_status/abc", 404);
+    const otherError = new OdysseusApiError("/api/chat/stream_status/abc", 500);
+
+    expect(isChatStreamInactiveError(resumeError)).toBe(true);
+    expect(isChatStreamInactiveError(statusError)).toBe(true);
+    expect(isChatStreamInactiveError(otherError)).toBe(false);
+    expect(isChatStreamInactiveError(new Error("Chat resume failed: 404"))).toBe(
+      false,
+    );
+  });
+
+  test("resume stream preserves structured 404 for stale detached run", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = ((async (_input: RequestInfo | URL) => {
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch);
+
+    try {
+      const payload = parsePairingPayload({
+        v: 1,
+        base_url: "https://odysseus-mac.taildc85bf.ts.net",
+        token,
+      });
+      const client = new OdysseusClient(companionBaseUrlFromPairing(payload), token);
+
+      const events: unknown[] = [];
+      const maybeError = await client
+        .resumeStream("session-123", (event) => {
+          events.push(event);
+        })
+        .then(() => undefined)
+        .catch((error) => error);
+
+      expect(maybeError).toBeInstanceOf(OdysseusApiError);
+      expect(isChatStreamInactiveError(maybeError)).toBe(true);
+      expect(`${maybeError.message}`).not.toContain("Chat resume failed: 404");
+      expect(events).toEqual([]);
     } finally {
       globalThis.fetch = originalFetch;
     }

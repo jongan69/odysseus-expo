@@ -10,6 +10,32 @@ export {
 const DEFAULT_COMMAND_PATH = "/api/companion/commands";
 const DEFAULT_JSON_REQUEST_TIMEOUT_MS = 10000;
 
+const STREAM_NOT_ACTIVE_ERROR_PATH_PREFIXES = [
+  "/api/chat/resume/",
+  "/api/chat/stream_status/",
+];
+
+export class OdysseusApiError extends Error {
+  constructor(
+    readonly path: string,
+    readonly status: number,
+    readonly body: string = "",
+  ) {
+    super(`${path} failed: ${status}${body ? ` ${body}` : ""}`);
+    this.name = "OdysseusApiError";
+  }
+}
+
+export function isChatStreamInactiveError(error: unknown): error is OdysseusApiError {
+  return (
+    error instanceof OdysseusApiError &&
+    error.status === 404 &&
+    STREAM_NOT_ACTIVE_ERROR_PATH_PREFIXES.some((prefix) =>
+      error.path.startsWith(prefix),
+    )
+  );
+}
+
 export type CompanionEndpoint = {
   endpoint_id: string;
   name: string;
@@ -111,11 +137,17 @@ export type CompanionManifest = {
 
 export type ChatStreamEvent =
   | { type: "done" }
-  | { type: "delta"; text: string }
+  | { type: "delta"; text: string; thinking?: boolean }
   | { type: "model_info"; data: Record<string, unknown> }
+  | { type: "model_actual"; data: Record<string, unknown> }
+  | { type: "fallback"; data: Record<string, unknown> }
   | { type: "metrics"; data: Record<string, unknown> }
   | { type: "message_saved"; id?: string }
+  | { type: "tool_start"; data: Record<string, unknown> }
+  | { type: "tool_progress"; data: Record<string, unknown> }
   | { type: "tool_output"; data: Record<string, unknown> }
+  | { type: "agent_step"; data: Record<string, unknown> }
+  | { type: "web_sources"; data: unknown }
   | { type: "research"; eventType: string; data: unknown }
   | { type: "event"; eventType: string; data: Record<string, unknown> }
   | { type: "error"; error: string; status?: number };
@@ -164,7 +196,7 @@ async function requestJson<T>(
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(`${path} failed: ${response.status}${text ? ` ${text}` : ""}`);
+      throw new OdysseusApiError(path, response.status, text);
     }
     return response.json();
   } catch (err) {
@@ -185,17 +217,25 @@ async function requestJson<T>(
 
 export function chatEventFromJson(json: Record<string, unknown>): ChatStreamEvent {
   if (typeof json.delta === "string") {
-    return { type: "delta", text: json.delta };
+    return { type: "delta", text: json.delta, thinking: json.thinking === true };
   }
   const eventType = String(json.type || "event");
   if (eventType === "model_info") return { type: "model_info", data: json };
+  if (eventType === "model_actual") return { type: "model_actual", data: json };
+  if (eventType === "fallback") return { type: "fallback", data: json };
   if (eventType === "metrics" && isPlainObject(json.data)) {
     return { type: "metrics", data: json.data };
   }
   if (eventType === "message_saved") {
     return { type: "message_saved", id: String(json.id || "") || undefined };
   }
+  if (eventType === "tool_start") return { type: "tool_start", data: json };
+  if (eventType === "tool_progress") return { type: "tool_progress", data: json };
   if (eventType === "tool_output") return { type: "tool_output", data: json };
+  if (eventType === "agent_step") return { type: "agent_step", data: json };
+  if (eventType === "web_sources") {
+    return { type: "web_sources", data: json.data ?? json };
+  }
   if (eventType.startsWith("research_")) {
     return { type: "research", eventType, data: json.data ?? json };
   }
@@ -405,11 +445,15 @@ export class OdysseusClient {
     onEvent: (event: ChatStreamEvent) => void,
     signal?: AbortSignal,
   ) {
-    const response = await fetch(
-      joinUrl(this.baseUrl, `/api/chat/resume/${encodeURIComponent(sessionId)}`),
-      { headers: authHeaders(this.token), signal },
-    );
-    if (!response.ok) throw new Error(`Chat resume failed: ${response.status}`);
+    const streamPath = `/api/chat/resume/${encodeURIComponent(sessionId)}`;
+    const response = await fetch(joinUrl(this.baseUrl, streamPath), {
+      headers: authHeaders(this.token),
+      signal,
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new OdysseusApiError(streamPath, response.status, body);
+    }
     await readSseResponse(response, onEvent);
   }
 

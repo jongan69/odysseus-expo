@@ -3,6 +3,7 @@ import { splitThinking } from "@/utils/thinking";
 import type { ReactNode } from "react";
 import { Text, View } from "react-native";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { CopyButton } from "./copy-button";
 import { ThinkingBlock } from "./thinking-block";
 
 /**
@@ -61,6 +62,11 @@ export function MessageResponse({ children }: { children: string }) {
     <View className="gap-2">
       <ThinkingBlock thinking={thinking} defaultOpen={!visibleAnswer.trim()} />
       <ChatMarkdown>{visibleAnswer || "..."}</ChatMarkdown>
+      {visibleAnswer.trim() && (
+        <View className="flex-row justify-end">
+          <CopyButton text={visibleAnswer} label="Copy message" showLabel />
+        </View>
+      )}
     </View>
   );
 }

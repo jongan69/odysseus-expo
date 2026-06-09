@@ -1,8 +1,16 @@
 import { Icon } from "@/components/icon";
 import { cn } from "@/utils/tailwind";
 import { ChevronDown, ChevronRight } from "lucide-react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 
 export function ThinkingBlock({
   thinking,
@@ -15,6 +23,7 @@ export function ThinkingBlock({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const trimmed = thinking.trim();
+  const elapsedSeconds = useLiveElapsed(live && Boolean(trimmed));
 
   if (!trimmed) return null;
 
@@ -34,9 +43,12 @@ export function ThinkingBlock({
           Thinking
         </Text>
         {live && (
-          <Text className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
-            Live
-          </Text>
+          <View className="flex-row items-center gap-1.5 rounded-full bg-foreground/10 px-2 py-0.5">
+            <LiveDot />
+            <Text className="text-[11px] font-semibold text-muted-foreground">
+              {elapsedSeconds.toFixed(1)}s
+            </Text>
+          </View>
         )}
       </Pressable>
       {open && (
@@ -51,5 +63,58 @@ export function ThinkingBlock({
         </Text>
       )}
     </View>
+  );
+}
+
+function useLiveElapsed(enabled: boolean) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const startedAt = Date.now();
+    const interval = setInterval(() => {
+      setElapsedSeconds((Date.now() - startedAt) / 1000);
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [enabled]);
+
+  return enabled ? elapsedSeconds : 0;
+}
+
+function LiveDot() {
+  const opacity = useSharedValue(0.35);
+
+  useEffect(() => {
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(1, {
+          duration: 450,
+          easing: Easing.out(Easing.cubic),
+        }),
+        withTiming(0.35, {
+          duration: 450,
+          easing: Easing.in(Easing.cubic),
+        }),
+      ),
+      -1,
+      false,
+    );
+
+    return () => {
+      opacity.value = 0.35;
+    };
+  }, [opacity]);
+
+  const dotStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
+
+  return (
+    <Animated.View
+      style={dotStyle}
+      className="h-1.5 w-1.5 rounded-full bg-muted-foreground"
+    />
   );
 }

@@ -1,6 +1,7 @@
 import { ChatMarkdown } from "@/components/markdown";
 import type { ReactNode } from "react";
 import { Text, View } from "react-native";
+import { CopyButton } from "./copy-button";
 
 /**
  * Web message component matching Vercel chatbot design.
@@ -47,5 +48,15 @@ export function Message({
  * Renders markdown content for an assistant message.
  */
 export function MessageResponse({ children }: { children: string }) {
-  return <ChatMarkdown>{children || "..."}</ChatMarkdown>;
+  const content = children || "";
+  return (
+    <View className="gap-2">
+      <ChatMarkdown>{content || "..."}</ChatMarkdown>
+      {content.trim() && (
+        <View className="flex-row justify-end">
+          <CopyButton text={content} label="Copy message" showLabel />
+        </View>
+      )}
+    </View>
+  );
 }

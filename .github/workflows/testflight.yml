@@ -1,0 +1,68 @@
+name: TestFlight
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testflight-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-submit-ios:
+    name: Build and submit iOS
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      APP_REVIEW_PHONE: ${{ secrets.APP_REVIEW_PHONE }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Set up Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          packager: bun
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify
+        run: |
+          bun run test
+          bun run typecheck
+          bun run lint
+
+      - name: Check required release secrets
+        run: |
+          test -n "$APP_REVIEW_PHONE" || {
+            echo "APP_REVIEW_PHONE GitHub secret is required for store.config.js"
+            exit 1
+          }
+
+      - name: Build and submit to TestFlight
+        run: >
+          eas build
+          --platform ios
+          --profile production
+          --auto-submit
+          --non-interactive
+          --message "GitHub Actions TestFlight build ${{ github.sha }}"
+          --what-to-test "Automated TestFlight build from ${{ github.sha }}"

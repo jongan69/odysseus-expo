@@ -201,14 +201,14 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
 
   const storageScope = useMemo(
     () =>
-      stored
-        ? chatSessionStorageScope({
-            baseUrl: stored.baseUrl,
-            token: stored.pairing.token,
-          })
-        : undefined,
-    [stored?.baseUrl, stored?.pairing?.token],
-  );
+	      stored
+	        ? chatSessionStorageScope({
+	            baseUrl: stored.baseUrl,
+	            token: stored.pairing.token,
+	          })
+	        : undefined,
+	    [stored],
+	  );
 
   const archivedSessionSet = useMemo(
     () => new Set(archivedSessionIds),
@@ -238,7 +238,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       return stored.activeSessionId;
     }
     return visibleSessions[0]?.id;
-  }, [stored?.activeSessionId, archivedSessionSet, deletedSessionSet, visibleSessions]);
+	  }, [stored, archivedSessionSet, deletedSessionSet, visibleSessions]);
 
   const client = useMemo(() => {
     if (!stored) return undefined;
@@ -313,13 +313,15 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     await setSecureItem(PAIRING_STORAGE_KEY, JSON.stringify(nextStored));
   }, []);
 
-  useEffect(() => {
-    const scope = storageScope;
-    if (!scope) {
-      setArchivedSessionIds([]);
-      setDeletedSessionIds([]);
-      return;
-    }
+	  useEffect(() => {
+	    const scope = storageScope;
+	    if (!scope) {
+	      const timeout = setTimeout(() => {
+	        setArchivedSessionIds([]);
+	        setDeletedSessionIds([]);
+	      }, 0);
+	      return () => clearTimeout(timeout);
+	    }
     let cancelled = false;
     async function hydrateSessionState() {
       const nextState = await loadChatSessionState(scope!);

@@ -21,7 +21,16 @@ import {
   type ChatOptions,
 } from "@/components/chat/tool-toggles";
 import { Icon } from "@/components/icon";
-import type { CompanionHistoryMessage } from "@/api/odysseusClient";
+import {
+  isChatStreamInactiveError,
+  type ChatStreamEvent,
+  type CompanionHistoryMessage,
+} from "@/api/odysseusClient";
+import {
+  removeResumePlaceholder,
+  shouldClearRecoverableFromHistory,
+  shouldResumeFromStreamStatus,
+} from "@/utils/chat-resume-state";
 import { MainHeader } from "@/components/main-header";
 import {
   beginBackgroundSession,
@@ -42,15 +51,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Pressable, Text, View } from "react-native";
 
 const STREAMING_THROTTLE_MS = 32;
-const FINISHED_STREAM_STATUSES = new Set([
-  "complete",
-  "completed",
-  "done",
-  "error",
-  "idle",
-  "not_found",
-  "stopped",
-]);
 
 function contentToText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -70,25 +70,78 @@ function contentToText(content: unknown): string {
   return String(content);
 }
 
+function metadataToolEventsToMarkdown(metadata?: Record<string, unknown>) {
+  const events = metadata?.tool_events;
+  if (!Array.isArray(events)) return "";
+
+  const blocks = events
+    .map((event) => {
+      if (!event || typeof event !== "object") return "";
+      const data = event as Record<string, unknown>;
+      const tool = eventLabel(data.tool) || "Tool";
+      const exitCode = data.exit_code;
+      const status = exitCode === 0 || exitCode === undefined || exitCode === null
+        ? "done"
+        : "failed";
+      const sections = [`### ${tool} ${status}`];
+      const command = typeof data.command === "string" ? data.command.trim() : "";
+      const output = typeof data.output === "string" ? data.output.trim() : "";
+      const diff =
+        data.diff && typeof data.diff === "object"
+          ? (data.diff as Record<string, unknown>)
+          : undefined;
+      const diffText = typeof diff?.text === "string" ? diff.text.trim() : "";
+
+      if (command && !diffText) {
+        sections.push(`\`\`\`text\n${command}\n\`\`\``);
+      }
+      if (diffText) {
+        sections.push(`\`\`\`diff\n${diffText}\n\`\`\``);
+      }
+      if (output) {
+        sections.push(`\`\`\`text\n${output}\n\`\`\``);
+      }
+
+      return sections.length > 1 ? sections.join("\n\n") : "";
+    })
+    .filter(Boolean);
+
+  return blocks.length ? `\n\n${blocks.join("\n\n")}` : "";
+}
+
 function historyMessageToChatMessage(
   sessionId: string,
   message: CompanionHistoryMessage,
   index: number,
 ): ChatMessage | undefined {
   if (message.role !== "user" && message.role !== "assistant") return undefined;
+  const content = contentToText(message.content);
   return {
     id: `${sessionId}-${index}-${message.role}`,
     role: message.role,
-    content: contentToText(message.content),
+    content:
+      message.role === "assistant"
+        ? `${content}${metadataToolEventsToMarkdown(message.metadata)}`
+        : content,
   };
 }
 
-function shouldResumeStreamStatus(status?: { status?: string; detached?: boolean }) {
-  if (!status) return true;
-  if (status.detached) return true;
-  const normalized = status.status?.trim().toLowerCase();
-  if (!normalized) return true;
-  return !FINISHED_STREAM_STATUSES.has(normalized);
+function eventLabel(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .replace(/[_-]+/g, " ");
+}
+
+function researchStatusLabel(event: ChatStreamEvent) {
+  if (event.type !== "research") return undefined;
+  if (event.data && typeof event.data === "object") {
+    const data = event.data as Record<string, unknown>;
+    const phase = eventLabel(data.phase);
+    const title = eventLabel(data.title);
+    if (phase && title) return `${phase}: ${title}`;
+    if (phase) return `Research ${phase}`;
+  }
+  return eventLabel(event.eventType);
 }
 
 function useOdysseusChat() {
@@ -202,6 +255,40 @@ function useOdysseusChat() {
     [replaceSessionMessages, storageScope],
   );
 
+  const clearRecoverableStreamState = useCallback(
+    (sessionId?: string, statusLabel?: string) => {
+      if (sessionId) {
+        if (recoverableStreamRef.current?.sessionId === sessionId) {
+          const { assistantId } = recoverableStreamRef.current;
+          delete autoRecoveryAttemptsRef.current[`${sessionId}:${assistantId}`];
+          recoverableStreamRef.current = null;
+        }
+      } else {
+        autoRecoveryAttemptsRef.current = {};
+        recoverableStreamRef.current = null;
+      }
+      setCanResume(false);
+      setStreamStatusLabel(statusLabel);
+      if (sessionId) {
+        const recoverableStream = activeStreamRef.current;
+        if (recoverableStream?.sessionId === sessionId) {
+          // Leave active stream tracking to the run loop's finalizer.
+        }
+      }
+    },
+    [],
+  );
+
+  const clearResumePlaceholderMessage = useCallback(
+    (sessionId: string, assistantId: string) => {
+      persistSessionMessages(sessionId, (current) => {
+        const update = removeResumePlaceholder(current, assistantId);
+        return update.nextMessages;
+      });
+    },
+    [persistSessionMessages],
+  );
+
   const hydrateSessionFromSources = useCallback(
     async (sessionId: string, isCancelled: () => boolean = () => false) => {
       const localMessages = await loadChatSessionMessages(
@@ -227,6 +314,18 @@ function useOdysseusChat() {
           .filter((message): message is ChatMessage => Boolean(message));
 
         const latestMessages = messagesBySessionRef.current[sessionId] ?? [];
+        if (
+          shouldClearRecoverableFromHistory(
+            historyMessages,
+            recoverableStreamRef.current?.sessionId === sessionId
+              ? recoverableStreamRef.current
+              : null,
+            latestMessages,
+          )
+        ) {
+          clearRecoverableStreamState(sessionId, "Done");
+        }
+
         if (latestMessages.length > localMessages.length) return;
 
         if (historyMessages.length || !latestMessages.length) {
@@ -241,16 +340,19 @@ function useOdysseusChat() {
         // Local persistence is the fallback when the companion history endpoint is unavailable.
       }
     },
-    [client, replaceSessionMessages, storageScope],
+    [client, replaceSessionMessages, storageScope, clearRecoverableStreamState],
   );
 
   useEffect(() => {
     if (!activeSessionId) return;
     let cancelled = false;
+    const timeout = setTimeout(() => {
+      void hydrateSessionFromSources(activeSessionId, () => cancelled);
+    }, 0);
 
-    void hydrateSessionFromSources(activeSessionId, () => cancelled);
     return () => {
       cancelled = true;
+      clearTimeout(timeout);
     };
   }, [activeSessionId, hydrateSessionFromSources]);
 
@@ -302,6 +404,8 @@ function useOdysseusChat() {
         "Odysseus chat stream",
       );
       let streamed = "";
+      let displayedStream = "";
+      let thinkingOpen = false;
       let modelLabel = "";
 
       setIsGenerating(true);
@@ -312,16 +416,56 @@ function useOdysseusChat() {
       streamingStore.set("");
 
       try {
-        const onEvent = (event: Parameters<typeof client.chatStream>[1] extends (event: infer E) => void ? E : never) => {
+        const appendVisibleStream = (text: string) => {
+          if (!text) return;
+          if (thinkingOpen) {
+            displayedStream += "</think>";
+            thinkingOpen = false;
+          }
+          streamed += text;
+          displayedStream += text;
+          flushStreaming(displayedStream);
+        };
+
+        const onEvent = (event: ChatStreamEvent) => {
           lastStreamEventAtRef.current = Date.now();
           if (event.type === "delta") {
-            streamed += event.text;
-            flushStreaming(streamed);
+            if (event.thinking) {
+              if (!thinkingOpen) {
+                displayedStream += "<think>";
+                thinkingOpen = true;
+              }
+              displayedStream += event.text;
+              setStreamStatusLabel(modelLabel ? `Thinking ${modelLabel}` : "Thinking");
+              flushStreaming(displayedStream);
+              return;
+            }
+            appendVisibleStream(event.text);
+            return;
+          }
+          if (event.type === "done") {
             return;
           }
           if (event.type === "model_info") {
             modelLabel = String(event.data.model || "");
             setStreamStatusLabel(modelLabel ? `Streaming ${modelLabel}` : "Streaming");
+            return;
+          }
+          if (event.type === "model_actual") {
+            modelLabel = String(event.data.model || modelLabel || "");
+            setStreamStatusLabel(modelLabel ? `Streaming ${modelLabel}` : "Streaming");
+            return;
+          }
+          if (event.type === "fallback") {
+            const answeredBy = eventLabel(event.data.answered_by);
+            const selectedModel = eventLabel(event.data.selected_model);
+            setStreamStatusLabel(
+              answeredBy
+                ? selectedModel
+                  ? `${selectedModel} failed · ${answeredBy}`
+                  : `Streaming ${answeredBy}`
+                : "Using fallback model",
+            );
             return;
           }
           if (event.type === "metrics") {
@@ -336,13 +480,34 @@ function useOdysseusChat() {
             }
             return;
           }
+          if (event.type === "tool_start") {
+            const tool = eventLabel(event.data.tool) || "tool";
+            setStreamStatusLabel(`Running ${tool}`);
+            return;
+          }
+          if (event.type === "tool_progress") {
+            const tool = eventLabel(event.data.tool);
+            setStreamStatusLabel(tool ? `Running ${tool}` : "Tool running");
+            return;
+          }
           if (event.type === "tool_output") {
-            streamed += `\n\n\`\`\`\n${String(event.data.output ?? "")}\n\`\`\``;
-            flushStreaming(streamed);
+            appendVisibleStream(`\n\n\`\`\`\n${String(event.data.output ?? "")}\n\`\`\``);
+            setStreamStatusLabel("Tool complete");
+            return;
+          }
+          if (event.type === "agent_step") {
+            const round = event.data.round;
+            setStreamStatusLabel(
+              typeof round === "number" ? `Agent step ${round}` : "Agent working",
+            );
+            return;
+          }
+          if (event.type === "web_sources") {
+            setStreamStatusLabel("Using web sources");
             return;
           }
           if (event.type === "research") {
-            setStreamStatusLabel(event.eventType.replace(/_/g, " "));
+            setStreamStatusLabel(researchStatusLabel(event));
             return;
           }
           if (event.type === "error") {
@@ -367,13 +532,19 @@ function useOdysseusChat() {
             onEvent,
           );
         }
-        recoverableStreamRef.current = null;
+        clearRecoverableStreamState(undefined, modelLabel || "Done");
         finishAssistantMessage(sessionId, assistantId, streamed || "Done.");
         setStreamStatusLabel(modelLabel || "Done");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch (err) {
         const nextError =
           err instanceof Error ? err : new Error("Odysseus stream failed");
+        if (resume && isChatStreamInactiveError(nextError)) {
+          await hydrateSessionFromSources(sessionId);
+          clearResumePlaceholderMessage(sessionId, assistantId);
+          clearRecoverableStreamState(sessionId, "Done");
+          return;
+        }
         if (nextError.name !== "AbortError") {
           setError(nextError);
           finishAssistantMessage(
@@ -412,6 +583,9 @@ function useOdysseusChat() {
       client,
       finishAssistantMessage,
       flushStreaming,
+      clearRecoverableStreamState,
+      clearResumePlaceholderMessage,
+      hydrateSessionFromSources,
       options,
       refresh,
       streamingStore,
@@ -500,13 +674,20 @@ function useOdysseusChat() {
     const recoverableStream = recoverableStreamRef.current ?? activeStreamRef.current;
     if (!recoverableStream) return;
 
-    const statusResponse = await client
-      .streamStatus(recoverableStream.sessionId)
-      .catch(() => undefined);
+    let statusResponse: { status: string; detached?: boolean } | undefined;
+    try {
+      statusResponse = await client.streamStatus(recoverableStream.sessionId);
+    } catch (err) {
+      if (isChatStreamInactiveError(err)) {
+        statusResponse = { status: "not_found" };
+      } else {
+        setError(err instanceof Error ? err : new Error("Unable to check stream status"));
+        return;
+      }
+    }
     await hydrateSessionFromSources(recoverableStream.sessionId);
-    if (!shouldResumeStreamStatus(statusResponse)) {
-      recoverableStreamRef.current = null;
-      setCanResume(false);
+    if (!shouldResumeFromStreamStatus(statusResponse)) {
+      clearRecoverableStreamState(recoverableStream.sessionId, "Done");
       if (activeStreamRef.current?.assistantId === recoverableStream.assistantId) {
         suppressAbortFinishRef.current[recoverableStream.assistantId] = true;
         abortRef.current?.abort();
@@ -548,6 +729,7 @@ function useOdysseusChat() {
   }, [
     activeSessionId,
     client,
+    clearRecoverableStreamState,
     hydrateSessionFromSources,
     persistSessionMessages,
     refresh,
@@ -638,14 +820,17 @@ export default function ChatScreen() {
       return (
         <Message from="assistant">
           {isStreaming ? (
-            <StreamingMessage store={streamingStore} />
+            <StreamingMessage
+              store={streamingStore}
+              statusLabel={chat.streamStatusLabel}
+            />
           ) : (
             <MessageResponse>{item.content}</MessageResponse>
           )}
         </Message>
       );
     },
-    [activeSessionIsGenerating, streamingStore],
+    [activeSessionIsGenerating, chat.streamStatusLabel, streamingStore],
   );
 
   if (companion.status === "loading") {

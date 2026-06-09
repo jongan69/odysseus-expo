@@ -3,6 +3,7 @@ import {
   Text,
   Linking,
   Image,
+  ScrollView,
   type ImageProps,
   type ImageStyle,
   type ViewStyle,
@@ -115,9 +116,9 @@ const renderRules: RenderRules = {
     </View>
   ),
   table: ({ node, styles, children }) => (
-    <View key={node.key} style={getViewStyle(styles, '_VIEW_SAFE_table')}>
-      {children}
-    </View>
+    <ScrollView key={node.key} horizontal showsHorizontalScrollIndicator={false}>
+      <View style={getViewStyle(styles, '_VIEW_SAFE_table')}>{children}</View>
+    </ScrollView>
   ),
   tableRow: ({ node, styles, children, extras }) => (
     <View

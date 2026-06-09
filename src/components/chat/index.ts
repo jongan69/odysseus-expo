@@ -12,6 +12,7 @@ export {
 
 // Message
 export { Message, MessageResponse } from "./message";
+export { CopyButton } from "./copy-button";
 
 // Prompt Input
 export {
