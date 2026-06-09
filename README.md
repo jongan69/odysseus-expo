@@ -54,13 +54,20 @@ versions stay aligned with the installed Expo SDK.
 
 ## Setup
 
-Install dependencies:
+Install dependencies with Bun:
 
 ```bash
 bun install
 ```
 
-Create local environment settings:
+`bun install` also runs `scripts/ensure-expo-macros-plugin.mjs`, which repairs
+the hoisted Expo macros plugin path needed by the generated iOS project.
+
+Local environment settings are optional for the companion app itself. The
+mobile companion flow talks to the Odysseus server you pair with, so you do not
+need an Anthropic key just to run the native client.
+
+Create `.env` only if you plan to use the local Expo API route or server output:
 
 ```bash
 cp .env.example .env
@@ -71,15 +78,36 @@ cp .env.example .env
 | `ANTHROPIC_API_KEY` | Used only by the local `src/app/api/chat+api.ts` Expo API route. The main companion chat flow talks to the paired Odysseus server. |
 | `EXPO_UNSTABLE_DEPLOY_SERVER` | Enables Expo server output/API route behavior when required by the target environment. |
 
-## Running
+For native development, use a custom Expo development build. Expo Go is not
+supported by this app.
 
-Start the Expo dev server:
+Build and install the development client on a connected iPhone or simulator:
 
 ```bash
-bun start
+bunx expo run:ios --device
 ```
 
-Run native builds:
+After the development client is installed, start Metro for that client:
+
+```bash
+bunx expo start --dev-client
+```
+
+Then open the installed `Odysseus` app and scan or paste a pairing payload from
+a reachable Odysseus server. Local HTTP pairings require the phone to be on the
+same network or VPN as the server host; off-network use requires a trusted
+reachable HTTPS origin.
+
+## Running
+
+Start Metro for an installed development client:
+
+```bash
+bunx expo start --dev-client
+```
+
+Rebuild the native development client when native modules or native config
+change:
 
 ```bash
 bun run ios
