@@ -158,7 +158,7 @@ export function PairingScreen({
           multiline
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder='{"v":1,"host":"192.168.1.10","port":7000,"token":"ody_..."}'
+          placeholder='{"v":1,"base_url":"https://odysseus.example.com","token":"ody_..."}'
           className="min-h-28 rounded-xl border border-border bg-background px-3 py-3 font-mono text-sm text-foreground border-continuous"
           style={{ textAlignVertical: "top" }}
         />

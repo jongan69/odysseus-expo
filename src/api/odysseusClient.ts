@@ -1,19 +1,14 @@
-import {
-  DEFAULT_COMMAND_PATH,
-  type CommandKeyPair,
-  type JsonValue,
-  signedCommandHeaders,
-} from "@/crypto/companionSigning";
+import type { CommandKeyPair, JsonValue } from "@/crypto/companionSigning";
 
-const PAIRING_VERSION = 1;
+export {
+  companionBaseUrlFromPairing,
+  normalizeBaseUrl,
+  parsePairingPayload,
+  type PairingPayload,
+} from "./pairing";
+
+const DEFAULT_COMMAND_PATH = "/api/companion/commands";
 const DEFAULT_JSON_REQUEST_TIMEOUT_MS = 10000;
-
-export type PairingPayload = {
-  v: number;
-  host: string;
-  port: number;
-  token: string;
-};
 
 export type CompanionEndpoint = {
   endpoint_id: string;
@@ -186,40 +181,6 @@ async function requestJson<T>(
     if (timeout) clearTimeout(timeout);
     signal?.removeEventListener("abort", abortRequest);
   }
-}
-
-export function parsePairingPayload(input: string | unknown): PairingPayload {
-  const payload = typeof input === "string" ? JSON.parse(input) : input;
-  if (!isPlainObject(payload)) {
-    throw new Error("Pairing payload must be a JSON object");
-  }
-  const version = Number(payload.v);
-  const host = String(payload.host ?? "").trim();
-  const port = Number(payload.port);
-  const token = String(payload.token ?? "").trim();
-
-  if (version !== PAIRING_VERSION) {
-    throw new Error("Unsupported pairing payload version");
-  }
-  if (!host) throw new Error("Pairing host is required");
-  if (/[\s/\\?#]/.test(host)) throw new Error("Pairing host is invalid");
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("Pairing port must be an integer between 1 and 65535");
-  }
-  if (!token.startsWith("ody_")) throw new Error("Pairing token is invalid");
-  return { v: version, host, port, token };
-}
-
-export function companionBaseUrlFromPairing(
-  input: PairingPayload,
-  protocol: "http" | "https" = "http",
-) {
-  const payload = parsePairingPayload(input);
-  const host =
-    payload.host.includes(":") && !payload.host.startsWith("[")
-      ? `[${payload.host}]`
-      : payload.host;
-  return `${protocol}://${host}:${payload.port}`;
 }
 
 export function chatEventFromJson(json: Record<string, unknown>): ChatStreamEvent {
@@ -492,6 +453,7 @@ export class OdysseusClient {
 
   async command(command: string, args: Record<string, JsonValue>, key: CommandKeyPair) {
     const body = { command, args };
+    const { signedCommandHeaders } = await import("@/crypto/companionSigning");
     const headers = await signedCommandHeaders({
       body,
       key,

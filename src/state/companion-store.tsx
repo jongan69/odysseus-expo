@@ -267,7 +267,12 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     async (payloadText: string, protocol: "http" | "https" = "http") => {
       const pairing = parsePairingPayload(payloadText);
       const baseUrl = companionBaseUrlFromPairing(pairing, protocol);
-      const nextStored = { pairing, baseUrl, protocol } satisfies StoredPairing;
+      const nextProtocol = baseUrl.startsWith("https:") ? "https" : "http";
+      const nextStored = {
+        pairing,
+        baseUrl,
+        protocol: nextProtocol,
+      } satisfies StoredPairing;
       const nextClient = new OdysseusClient(baseUrl, pairing.token);
       setError(undefined);
       try {
