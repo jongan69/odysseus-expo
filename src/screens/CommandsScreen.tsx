@@ -52,6 +52,7 @@ export function CommandsScreen() {
     ensureCommandKeyRegistered,
     sendCommand,
     refresh,
+    resetPairing,
     manifest,
   } = useCompanion();
   const [selectedName, setSelectedName] = useState(commandCatalog[0]?.name);
@@ -85,8 +86,15 @@ export function CommandsScreen() {
     }
   }
 
+  async function pairAgain() {
+    setError(undefined);
+    setResult(undefined);
+    await resetPairing();
+  }
+
   const properties = selected?.args_schema?.properties ?? {};
   const required = new Set(selected?.args_schema?.required ?? []);
+  const showPairAgain = error?.includes("paired Odysseus token was rejected");
 
   return (
     <ScrollView
@@ -226,9 +234,19 @@ export function CommandsScreen() {
       )}
 
       {error && (
-        <Text selectable className="rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-500">
-          {error}
-        </Text>
+        <View className="gap-3 rounded-xl bg-red-500/10 px-4 py-3">
+          <Text selectable className="text-sm leading-5 text-red-500">
+            {error}
+          </Text>
+          {showPairAgain && (
+            <Pressable
+              onPress={pairAgain}
+              className="self-start rounded-full bg-red-500 px-3 py-2 active:opacity-80"
+            >
+              <Text className="text-xs font-semibold text-white">Pair Again</Text>
+            </Pressable>
+          )}
+        </View>
       )}
 
       {result && (

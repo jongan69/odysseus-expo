@@ -5,6 +5,7 @@ import {
   OdysseusClient,
   chatEventFromJson,
   isChatStreamInactiveError,
+  isInvalidApiTokenError,
 } from "./odysseusClient";
 import { companionBaseUrlFromPairing, parsePairingPayload } from "./pairing";
 
@@ -165,6 +166,23 @@ describe("OdysseusClient", () => {
     expect(isChatStreamInactiveError(new Error("Chat resume failed: 404"))).toBe(
       false,
     );
+  });
+
+  test("classifies invalid companion bearer tokens", () => {
+    const commandError = new OdysseusApiError(
+      "/api/companion/commands",
+      401,
+      '{"error":"Invalid API token"}',
+    );
+    const signatureError = new OdysseusApiError(
+      "/api/companion/commands",
+      401,
+      '{"error":"Invalid command signature"}',
+    );
+
+    expect(isInvalidApiTokenError(commandError)).toBe(true);
+    expect(isInvalidApiTokenError(signatureError)).toBe(false);
+    expect(isInvalidApiTokenError(new Error("Invalid API token"))).toBe(false);
   });
 
   test("resume stream preserves structured 404 for stale detached run", async () => {

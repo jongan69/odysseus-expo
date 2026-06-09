@@ -1,6 +1,7 @@
 import {
   OdysseusClient,
   companionBaseUrlFromPairing,
+  isInvalidApiTokenError,
   parsePairingPayload,
   type CommandDefinition,
   type CompanionEndpoint,
@@ -161,6 +162,10 @@ function connectionErrorMessage(baseUrl: string | undefined, err: unknown) {
   const networkHint =
     "If this is a local HTTP pairing, your iPhone must be on the same Wi-Fi or VPN as the machine running Odysseus. For off-network use, pair again with a reachable HTTPS tunnel or public Odysseus origin.";
 
+  if (isInvalidApiTokenError(err)) {
+    return `The paired Odysseus token was rejected by ${target}. Pair again from that same Tailscale or remote Odysseus URL, then register the command key again.`;
+  }
+
   if (/timed out|could not reach|network request failed/i.test(detail)) {
     return `Unable to reach ${target}. ${networkHint}`;
   }
@@ -201,14 +206,14 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
 
   const storageScope = useMemo(
     () =>
-	      stored
-	        ? chatSessionStorageScope({
-	            baseUrl: stored.baseUrl,
-	            token: stored.pairing.token,
-	          })
-	        : undefined,
-	    [stored],
-	  );
+      stored
+        ? chatSessionStorageScope({
+            baseUrl: stored.baseUrl,
+            token: stored.pairing.token,
+          })
+        : undefined,
+    [stored],
+  );
 
   const archivedSessionSet = useMemo(
     () => new Set(archivedSessionIds),
@@ -238,7 +243,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       return stored.activeSessionId;
     }
     return visibleSessions[0]?.id;
-	  }, [stored, archivedSessionSet, deletedSessionSet, visibleSessions]);
+  }, [stored, archivedSessionSet, deletedSessionSet, visibleSessions]);
 
   const client = useMemo(() => {
     if (!stored) return undefined;
@@ -313,15 +318,15 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     await setSecureItem(PAIRING_STORAGE_KEY, JSON.stringify(nextStored));
   }, []);
 
-	  useEffect(() => {
-	    const scope = storageScope;
-	    if (!scope) {
-	      const timeout = setTimeout(() => {
-	        setArchivedSessionIds([]);
-	        setDeletedSessionIds([]);
-	      }, 0);
-	      return () => clearTimeout(timeout);
-	    }
+  useEffect(() => {
+    const scope = storageScope;
+    if (!scope) {
+      const timeout = setTimeout(() => {
+        setArchivedSessionIds([]);
+        setDeletedSessionIds([]);
+      }, 0);
+      return () => clearTimeout(timeout);
+    }
     let cancelled = false;
     async function hydrateSessionState() {
       const nextState = await loadChatSessionState(scope!);
@@ -426,17 +431,24 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     if (!client) throw new Error("Pair with Odysseus first");
     let nextKey = commandKey ?? (await createCommandKeyPair());
     if (!nextKey.registered) {
-      await client.registerKey({
-        publicKeyB64: nextKey.publicKeyB64,
-        keyId: nextKey.keyId,
-        label: "Odysseus mobile companion",
-      });
+      try {
+        await client.registerKey({
+          publicKeyB64: nextKey.publicKeyB64,
+          keyId: nextKey.keyId,
+          label: "Odysseus mobile companion",
+        });
+      } catch (err) {
+        const message = connectionErrorMessage(stored?.baseUrl, err);
+        setStatus("error");
+        setError(message);
+        throw new Error(message);
+      }
       nextKey = { ...nextKey, registered: true };
     }
     setCommandKey(nextKey);
     await setSecureItem(COMMAND_KEY_STORAGE_KEY, JSON.stringify(nextKey));
     return nextKey;
-  }, [client, commandKey]);
+  }, [client, commandKey, stored?.baseUrl]);
 
   const revokeCommandKey = useCallback(async () => {
     if (client && commandKey?.registered) {
@@ -450,9 +462,16 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     async (command: string, args: Record<string, JsonValue> = {}) => {
       if (!client) throw new Error("Pair with Odysseus first");
       const key = await ensureCommandKeyRegistered();
-      return client.command(command, args, key);
+      try {
+        return await client.command(command, args, key);
+      } catch (err) {
+        const message = connectionErrorMessage(stored?.baseUrl, err);
+        setStatus("error");
+        setError(message);
+        throw new Error(message);
+      }
     },
-    [client, ensureCommandKeyRegistered],
+    [client, ensureCommandKeyRegistered, stored?.baseUrl],
   );
 
   const archiveSession = useCallback(

@@ -14,6 +14,7 @@ const STREAM_NOT_ACTIVE_ERROR_PATH_PREFIXES = [
   "/api/chat/resume/",
   "/api/chat/stream_status/",
 ];
+const INVALID_API_TOKEN_PATTERN = /invalid api token/i;
 
 export class OdysseusApiError extends Error {
   constructor(
@@ -33,6 +34,14 @@ export function isChatStreamInactiveError(error: unknown): error is OdysseusApiE
     STREAM_NOT_ACTIVE_ERROR_PATH_PREFIXES.some((prefix) =>
       error.path.startsWith(prefix),
     )
+  );
+}
+
+export function isInvalidApiTokenError(error: unknown): error is OdysseusApiError {
+  return (
+    error instanceof OdysseusApiError &&
+    error.status === 401 &&
+    INVALID_API_TOKEN_PATTERN.test(`${error.body} ${error.message}`)
   );
 }
 
