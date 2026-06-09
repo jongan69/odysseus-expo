@@ -1,6 +1,7 @@
 import { Icon } from "@/components/icon";
 import {
   isChatStreamInactiveError,
+  type CompanionGoalRun,
   type ChatStreamEvent,
   type CompanionHistoryMessage,
 } from "@/api/odysseusClient";
@@ -80,7 +81,7 @@ function eventStatusLabel(event: ChatStreamEvent) {
 function statusTone(status?: GoalRunStatus) {
   if (status === "complete") return "text-emerald-500";
   if (status === "blocked" || status === "error") return "text-red-500";
-  if (status === "paused") return "text-amber-500";
+  if (status === "paused" || status === "stopped") return "text-amber-500";
   return "text-foreground";
 }
 
@@ -92,10 +93,14 @@ function statusLabel(status?: GoalRunStatus) {
       return "Continuing";
     case "paused":
       return "Paused";
+    case "queued":
+      return "Queued";
     case "complete":
       return "Complete";
     case "blocked":
       return "Blocked";
+    case "stopped":
+      return "Stopped";
     case "error":
       return "Error";
     default:
@@ -117,7 +122,11 @@ function turnStatusLabel(status?: GoalStatus) {
 }
 
 function isRecoverableRunStatus(status?: GoalRunStatus) {
-  return status === "running" || status === "continuing";
+  return status === "queued" || status === "running" || status === "continuing";
+}
+
+function isActiveServerRunStatus(status?: GoalRunStatus) {
+  return status === "queued" || status === "running" || status === "continuing";
 }
 
 function isOpenTurn(turn?: GoalTurnRecord) {
@@ -167,6 +176,7 @@ function buildInitialRun({
   return {
     version: 1,
     id: `goal-${Date.now()}`,
+    runner: "mobile",
     goal,
     sessionId,
     status: "running",
@@ -176,6 +186,51 @@ function buildInitialRun({
     useWeb,
     allowTerminal,
     transcript: [],
+  };
+}
+
+function goalStatusFromServer(status: CompanionGoalRun["status"]): GoalRunStatus {
+  if (status === "queued") return "queued";
+  if (status === "running") return "running";
+  if (status === "continuing") return "continuing";
+  if (status === "paused") return "paused";
+  if (status === "complete") return "complete";
+  if (status === "blocked") return "blocked";
+  if (status === "stopped") return "stopped";
+  return "error";
+}
+
+function serverGoalRunToRecord(
+  run: CompanionGoalRun,
+  previous?: GoalRunRecord | null,
+): GoalRunRecord {
+  return {
+    version: 1,
+    id:
+      previous?.runner === "server" && previous.remoteRunId === run.id
+        ? previous.id
+        : `server-goal-${run.id}`,
+    remoteRunId: run.id,
+    runner: "server",
+    goal: run.goal,
+    sessionId: run.session_id,
+    status: goalStatusFromServer(run.status),
+    round: Number(run.round || 0),
+    startedAt: run.started_at,
+    updatedAt: run.updated_at,
+    completedAt: run.completed_at ?? undefined,
+    error: run.error ?? undefined,
+    useWeb: run.use_web === true,
+    allowTerminal: run.allow_bash === true,
+    transcript: (run.transcript ?? []).map((turn) => ({
+      id: turn.id,
+      round: Number(turn.round || 0),
+      prompt: String(turn.prompt ?? ""),
+      response: String(turn.response ?? ""),
+      status: turn.status ?? undefined,
+      startedAt: turn.started_at ?? run.started_at,
+      completedAt: turn.completed_at ?? undefined,
+    })),
   };
 }
 
@@ -213,10 +268,16 @@ export function PursueGoalScreen() {
     manifest?.features?.signed_commands?.raw_shell_enabled ||
       manifest?.features?.remote_development?.raw_shell_enabled,
   );
+  const serverGoalRunsAvailable = Boolean(
+    manifest?.features?.goal_runs?.available !== false &&
+      manifest?.features?.goal_runs?.start_path,
+  );
   const effectiveAllowTerminal = allowTerminal && terminalAvailable;
   const goalRunId = goalRun?.id;
   const goalRunRound = goalRun?.round;
   const goalRunStatus = goalRun?.status;
+  const remoteRunId = goalRun?.runner === "server" ? goalRun.remoteRunId : undefined;
+  const serverRunActive = goalRun?.runner === "server" && isActiveServerRunStatus(goalRun.status);
 
   const persistRun = useCallback(
     (next: GoalRunRecord | null) => {
@@ -242,6 +303,33 @@ export function PursueGoalScreen() {
       });
     },
     [persistRun],
+  );
+
+  const applyServerGoalRun = useCallback(
+    (run: CompanionGoalRun) => {
+      const next = serverGoalRunToRecord(run, runRef.current);
+      persistRun(next);
+      setLiveText(String(run.live_text ?? ""));
+      setUseWeb(next.useWeb);
+      setAllowTerminal(next.allowTerminal);
+      setError(next.error);
+      setStatusDetail(
+        isActiveServerRunStatus(next.status)
+          ? "Running on Odysseus"
+          : statusLabel(next.status),
+      );
+      return next;
+    },
+    [persistRun],
+  );
+
+  const refreshServerGoalRun = useCallback(
+    async (runId: string) => {
+      if (!client) return undefined;
+      const result = await client.goalRun(runId);
+      return applyServerGoalRun(result.run);
+    },
+    [applyServerGoalRun, client],
   );
 
   useEffect(() => {
@@ -534,6 +622,19 @@ export function PursueGoalScreen() {
         name: goalSessionName(goal),
         rag: false,
       });
+      if (serverGoalRunsAvailable) {
+        const result = await client.startGoal({
+          sessionId: session.id,
+          goal,
+          useWeb,
+          allowBash: effectiveAllowTerminal,
+          maxTurns: 0,
+        });
+        applyServerGoalRun(result.run);
+        setGoalInput("");
+        setBusy(false);
+        return;
+      }
       const nextRun = buildInitialRun({
         goal,
         sessionId: session.id,
@@ -555,9 +656,11 @@ export function PursueGoalScreen() {
     canChat,
     client,
     createSession,
+    applyServerGoalRun,
     goalInput,
     persistRun,
     runGoalLoop,
+    serverGoalRunsAvailable,
     useWeb,
     effectiveAllowTerminal,
   ]);
@@ -565,6 +668,24 @@ export function PursueGoalScreen() {
   const resumeGoal = useCallback(async () => {
     const current = runRef.current;
     if (!current || busy) return;
+    if (current.runner === "server" && current.remoteRunId) {
+      if (!client) return;
+      setBusy(true);
+      setError(undefined);
+      setStatusDetail("Resuming on Odysseus");
+      try {
+        const result = await client.resumeGoal(current.remoteRunId);
+        applyServerGoalRun(result.run);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Unable to resume goal";
+        setError(message);
+        setStatusDetail("Error");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const nextRun = {
       ...current,
       status: "continuing" as const,
@@ -574,12 +695,21 @@ export function PursueGoalScreen() {
     };
     persistRun(nextRun);
     await runGoalLoop(nextRun);
-  }, [busy, effectiveAllowTerminal, persistRun, runGoalLoop, useWeb]);
+  }, [
+    applyServerGoalRun,
+    busy,
+    client,
+    effectiveAllowTerminal,
+    persistRun,
+    runGoalLoop,
+    useWeb,
+  ]);
 
   useEffect(() => {
     if (!goalRunId || goalRunRound === undefined || busy || !client || !canChat) {
       return;
     }
+    if (goalRun?.runner === "server") return;
     if (!isRecoverableRunStatus(goalRunStatus)) return;
 
     const autoResumeKey = `${goalRunId}:${goalRunRound}`;
@@ -595,21 +725,85 @@ export function PursueGoalScreen() {
     busy,
     canChat,
     client,
+    goalRun?.runner,
     goalRunId,
     goalRunRound,
     goalRunStatus,
     resumeGoal,
   ]);
 
+  useEffect(() => {
+    if (!remoteRunId || !client || !canChat) return;
+    let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | undefined;
+
+    const poll = async () => {
+      try {
+        const updated = await refreshServerGoalRun(remoteRunId);
+        if (cancelled || !updated) return;
+        if (!isActiveServerRunStatus(updated.status) && interval) {
+          clearInterval(interval);
+          interval = undefined;
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const message =
+          err instanceof Error ? err.message : "Unable to refresh goal run";
+        setError(message);
+        setStatusDetail("Server goal refresh failed");
+      }
+    };
+
+    void poll();
+    if (isActiveServerRunStatus(goalRunStatus)) {
+      interval = setInterval(() => {
+        void poll();
+      }, 2500);
+    }
+
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [
+    canChat,
+    client,
+    goalRunStatus,
+    refreshServerGoalRun,
+    remoteRunId,
+  ]);
+
   const stopGoal = useCallback(async () => {
     stopRequestedRef.current = true;
     setStatusDetail("Stopping");
+    if (goalRun?.runner === "server" && goalRun.remoteRunId && client) {
+      setBusy(true);
+      try {
+        const result = await client.stopGoal(goalRun.remoteRunId);
+        applyServerGoalRun(result.run);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Unable to stop goal";
+        setError(message);
+        setStatusDetail("Error");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (goalRun?.sessionId && client) {
       await client.stopStream(goalRun.sessionId).catch(() => undefined);
     }
     abortRef.current?.abort();
     patchRun({ status: "paused" });
-  }, [client, goalRun?.sessionId, patchRun]);
+  }, [
+    applyServerGoalRun,
+    client,
+    goalRun?.remoteRunId,
+    goalRun?.runner,
+    goalRun?.sessionId,
+    patchRun,
+  ]);
 
   const clearRun = useCallback(() => {
     if (busy) return;
@@ -649,10 +843,14 @@ export function PursueGoalScreen() {
   const canResume =
     !!goalRun &&
     !busy &&
-    goalRun.status !== "complete";
+    goalRun.status !== "complete" &&
+    !(goalRun.runner === "server" && isActiveServerRunStatus(goalRun.status));
   const resumeLabel =
-    goalRun && isRecoverableRunStatus(goalRun.status) ? "Recover" : "Resume";
-  const primaryDisabled = busy || !goalInput.trim();
+    goalRun && goalRun.runner !== "server" && isRecoverableRunStatus(goalRun.status)
+      ? "Recover"
+      : "Resume";
+  const primaryDisabled = busy || serverRunActive || !goalInput.trim();
+  const canStop = busy || serverRunActive;
 
   return (
     <ScrollView
@@ -692,14 +890,14 @@ export function PursueGoalScreen() {
             icon={Globe}
             label="Web"
             active={useWeb}
-            disabled={busy}
+            disabled={busy || serverRunActive}
             onPress={() => setUseWeb((value) => !value)}
           />
           <ToggleChip
             icon={TerminalSquare}
             label="Terminal"
             active={effectiveAllowTerminal}
-            disabled={busy || !terminalAvailable}
+            disabled={busy || serverRunActive || !terminalAvailable}
             onPress={() => setAllowTerminal((value) => !value)}
           />
         </View>
@@ -722,7 +920,7 @@ export function PursueGoalScreen() {
               <Text className="font-semibold text-foreground">{resumeLabel}</Text>
             </Pressable>
           )}
-          {busy && (
+          {canStop && (
             <Pressable
               onPress={stopGoal}
               className="flex-row items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-3 active:opacity-80 border-continuous"
@@ -731,7 +929,7 @@ export function PursueGoalScreen() {
               <Text className="font-semibold text-white">Stop</Text>
             </Pressable>
           )}
-          {!!goalRun && !busy && (
+          {!!goalRun && !busy && !serverRunActive && (
             <Pressable
               onPress={clearRun}
               className="flex-row items-center justify-center gap-2 rounded-xl bg-muted px-4 py-3 active:bg-accent border-continuous"

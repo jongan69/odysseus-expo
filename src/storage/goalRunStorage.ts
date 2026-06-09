@@ -9,11 +9,13 @@ const STORAGE_ROOT = FileSystem.documentDirectory
 
 export type GoalRunStatus =
   | "idle"
+  | "queued"
   | "running"
   | "continuing"
   | "paused"
   | "complete"
   | "blocked"
+  | "stopped"
   | "error";
 
 export type GoalTurnRecord = {
@@ -29,6 +31,8 @@ export type GoalTurnRecord = {
 export type GoalRunRecord = {
   version: typeof STORAGE_VERSION;
   id: string;
+  remoteRunId?: string;
+  runner?: "mobile" | "server";
   goal: string;
   sessionId: string;
   status: GoalRunStatus;
@@ -94,6 +98,11 @@ function normalizeGoalRun(value: GoalRunRecord | null): GoalRunRecord | null {
   return {
     ...value,
     status: value.status || "paused",
+    runner: value.runner === "server" ? "server" : "mobile",
+    remoteRunId:
+      typeof value.remoteRunId === "string" && value.remoteRunId.trim()
+        ? value.remoteRunId
+        : undefined,
     updatedAt: value.updatedAt || value.startedAt || new Date().toISOString(),
     useWeb: value.useWeb === true,
     allowTerminal: value.allowTerminal === true,

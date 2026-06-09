@@ -225,6 +225,64 @@ describe("OdysseusClient", () => {
     }
   });
 
+  test("server goal runs use the companion bearer token", async () => {
+    const requests: { url: string; headers: Headers; body: string }[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      requests.push({
+        url: String(input),
+        headers,
+        body: String(init?.body ?? ""),
+      });
+      return new Response(
+        JSON.stringify({
+          run: {
+            id: "run-1",
+            goal: "Ship it",
+            session_id: "session-1",
+            status: "queued",
+            round: 0,
+            started_at: "2026-06-09T00:00:00Z",
+            updated_at: "2026-06-09T00:00:00Z",
+            transcript: [],
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const client = new OdysseusClient(
+        "https://odysseus-mac.taildc85bf.ts.net",
+        ` ${token}\n`,
+      );
+
+      const result = await client.startGoal({
+        sessionId: "session-1",
+        goal: "Ship it",
+        useWeb: true,
+        allowBash: false,
+      });
+
+      expect(result.run.id).toBe("run-1");
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.url).toBe(
+        "https://odysseus-mac.taildc85bf.ts.net/api/companion/goals",
+      );
+      expect(requests[0]?.headers.get("Authorization")).toBe(`Bearer ${token}`);
+      expect(JSON.parse(requests[0]?.body ?? "{}")).toEqual({
+        session_id: "session-1",
+        goal: "Ship it",
+        use_web: true,
+        allow_bash: false,
+        max_turns: 0,
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("distinguishes inactive stream errors by status and path", () => {
     const resumeError = new OdysseusApiError("/api/chat/resume/abc", 404);
     const statusError = new OdysseusApiError("/api/chat/stream_status/abc", 404);

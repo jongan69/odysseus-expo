@@ -141,7 +141,58 @@ export type CompanionManifest = {
       workspace_file_control_enabled?: boolean;
       requires_signed_commands?: boolean;
     };
+    goal_runs?: {
+      status?: string;
+      available?: boolean;
+      required_bearer_scope?: string;
+      requires_session_id?: boolean;
+      start_path?: string;
+      list_path?: string;
+      status_path?: string;
+      resume_path?: string;
+      stop_path?: string;
+      completion_markers?: string[];
+    };
   };
+};
+
+export type CompanionGoalRunStatus =
+  | "queued"
+  | "running"
+  | "continuing"
+  | "paused"
+  | "complete"
+  | "blocked"
+  | "error"
+  | "stopped";
+
+export type CompanionGoalTurn = {
+  id: string;
+  round: number;
+  prompt?: string;
+  response?: string;
+  status?: "complete" | "continue" | "blocked" | null;
+  started_at?: string;
+  completed_at?: string | null;
+};
+
+export type CompanionGoalRun = {
+  version?: number;
+  id: string;
+  goal: string;
+  session_id: string;
+  status: CompanionGoalRunStatus;
+  round: number;
+  started_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  error?: string | null;
+  use_web?: boolean;
+  allow_bash?: boolean;
+  max_turns?: number;
+  transcript?: CompanionGoalTurn[];
+  live_text?: string;
+  last_metrics?: Record<string, unknown>;
 };
 
 export type ChatStreamEvent =
@@ -504,6 +555,66 @@ export class OdysseusClient {
       `/api/companion/keys/${encodeURIComponent(keyId)}`,
       this.token,
       { method: "DELETE" },
+    );
+  }
+
+  goalRuns() {
+    return requestJson<{ runs: CompanionGoalRun[] }>(
+      this.baseUrl,
+      "/api/companion/goals",
+      this.token,
+    );
+  }
+
+  startGoal(input: {
+    sessionId: string;
+    goal: string;
+    useWeb?: boolean;
+    allowBash?: boolean;
+    maxTurns?: number;
+  }) {
+    return requestJson<{ run: CompanionGoalRun }>(
+      this.baseUrl,
+      "/api/companion/goals",
+      this.token,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: input.sessionId,
+          goal: input.goal,
+          use_web: input.useWeb ?? false,
+          allow_bash: input.allowBash ?? false,
+          max_turns: input.maxTurns ?? 0,
+        }),
+        timeoutMs: 15000,
+      },
+    );
+  }
+
+  goalRun(runId: string) {
+    return requestJson<{ run: CompanionGoalRun }>(
+      this.baseUrl,
+      `/api/companion/goals/${encodeURIComponent(runId)}`,
+      this.token,
+    );
+  }
+
+  resumeGoal(runId: string) {
+    return requestJson<{ run: CompanionGoalRun }>(
+      this.baseUrl,
+      `/api/companion/goals/${encodeURIComponent(runId)}/resume`,
+      this.token,
+      { method: "POST", timeoutMs: 15000 },
+    );
+  }
+
+  stopGoal(runId: string) {
+    return requestJson<{ run: CompanionGoalRun }>(
+      this.baseUrl,
+      `/api/companion/goals/${encodeURIComponent(runId)}/stop`,
+      this.token,
+      { method: "POST", timeoutMs: 15000 },
     );
   }
 
