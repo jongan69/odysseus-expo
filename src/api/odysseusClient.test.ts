@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import {
   OdysseusApiError,
@@ -8,8 +8,19 @@ import {
   isInvalidApiTokenError,
 } from "./odysseusClient";
 import { companionBaseUrlFromPairing, parsePairingPayload } from "./pairing";
+import { type CommandKeyPair } from "@/crypto/companionSigning";
 
 const token = "ody_test_token";
+
+mock.module("@/crypto/companionSigning", () => ({
+  signedCommandHeaders: async () => ({
+    "X-Odysseus-Command-Key-Id": "mobile-test",
+    "X-Odysseus-Command-Nonce": "test-nonce",
+    "X-Odysseus-Command-Signature": "test-signature",
+    "X-Odysseus-Command-Timestamp": "2026-06-09T00:00:00.000Z",
+    "X-Odysseus-Command-Version": "1",
+  }),
+}));
 
 describe("pairing payload parsing", () => {
   test("remote-only payload with base_url and token succeeds", () => {
@@ -153,6 +164,62 @@ describe("OdysseusClient", () => {
         "https://odysseus-mac.taildc85bf.ts.net/api/companion/manifest",
       );
       expect(requests[0]?.headers.get("Authorization")).toBe(`Bearer ${token}`);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("signed commands use the trimmed pairing bearer token", async () => {
+    const requests: { url: string; headers: Headers; body: string }[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      requests.push({
+        url: String(input),
+        headers,
+        body: String(init?.body ?? ""),
+      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          verified: {},
+          command: { name: "server_status" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+
+    const commandKey: CommandKeyPair = {
+      keyId: "mobile-test",
+      publicKeyB64: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      privateSeedB64: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      fingerprint: "test",
+      registered: true,
+    };
+
+    try {
+      const payload = parsePairingPayload({
+        v: 1,
+        base_url: "https://odysseus-mac.taildc85bf.ts.net",
+        token,
+      });
+      const client = new OdysseusClient(
+        companionBaseUrlFromPairing(payload),
+        `\n ${payload.token}\t`,
+      );
+
+      await client.command("server_status", {}, commandKey);
+
+      expect(requests).toHaveLength(1);
+      expect(requests[0]?.url).toBe(
+        "https://odysseus-mac.taildc85bf.ts.net/api/companion/commands",
+      );
+      expect(requests[0]?.headers.get("Authorization")).toBe(`Bearer ${token}`);
+      expect(requests[0]?.headers.get("Content-Type")).toBe("application/json");
+      expect(JSON.parse(requests[0]?.body ?? "{}")).toEqual({
+        command: "server_status",
+        args: {},
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }

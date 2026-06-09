@@ -199,8 +199,8 @@ async function requestJson<T>(
       ...requestInit,
       signal: controller.signal,
       headers: {
-        ...authHeaders(token),
         ...(headers ?? {}),
+        ...authHeaders(token),
       },
     });
     if (!response.ok) {
@@ -334,10 +334,13 @@ function appendFormField(formData: FormData, key: string, value: unknown) {
 }
 
 export class OdysseusClient {
-  constructor(
-    readonly baseUrl: string,
-    readonly token: string,
-  ) {}
+  readonly baseUrl: string;
+  readonly token: string;
+
+  constructor(baseUrl: string, token: string) {
+    this.baseUrl = baseUrl;
+    this.token = token.trim();
+  }
 
   manifest() {
     return requestJson<CompanionManifest>(

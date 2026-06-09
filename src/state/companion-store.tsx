@@ -354,6 +354,8 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       setError(undefined);
       try {
         const snapshot = await fetchCompanionSnapshot(nextClient);
+        await deleteSecureItem(COMMAND_KEY_STORAGE_KEY);
+        setCommandKey(undefined);
         await persistStored(nextStored);
         applySnapshot(snapshot);
       } catch (err) {
