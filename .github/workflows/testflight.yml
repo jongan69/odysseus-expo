@@ -56,4 +56,3 @@ jobs:
           --auto-submit-with-profile testflight
           --non-interactive
           --message "GitHub Actions TestFlight build ${{ github.sha }}"
-          --what-to-test "Automated TestFlight build from ${{ github.sha }}"
