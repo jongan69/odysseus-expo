@@ -225,6 +225,36 @@ describe("OdysseusClient", () => {
     }
   });
 
+  test("manifest honors a custom timeout override", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          reject(error);
+        });
+      })) as typeof fetch);
+
+    try {
+      const payload = parsePairingPayload({
+        v: 1,
+        base_url: "https://odysseus-mac.taildc85bf.ts.net",
+        token,
+      });
+      const client = new OdysseusClient(
+        companionBaseUrlFromPairing(payload),
+        token,
+      );
+
+      await expect(client.manifest({ timeoutMs: 1200 })).rejects.toThrow(
+        "/api/companion/manifest timed out after 1s while connecting to https://odysseus-mac.taildc85bf.ts.net",
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("server goal runs use the companion bearer token", async () => {
     const requests: { url: string; headers: Headers; body: string }[] = [];
     const originalFetch = globalThis.fetch;

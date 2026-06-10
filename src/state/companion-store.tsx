@@ -40,6 +40,7 @@ import React, {
 
 const PAIRING_STORAGE_KEY = "odysseus.companion.pairing.v1";
 const COMMAND_KEY_STORAGE_KEY = "odysseus.companion.command-key.v1";
+const REMOTE_COMPANION_DISCOVERY_TIMEOUT_MS = 30000;
 
 type StoredPairing = {
   pairing: PairingPayload;
@@ -156,17 +157,28 @@ function parseStoredCommandKey(value: string | null): CommandKeyPair | undefined
   }
 }
 
-function connectionErrorMessage(baseUrl: string | undefined, err: unknown) {
+function connectionErrorMessage(
+  baseUrl: string | undefined,
+  err: unknown,
+  context: "refresh" | "pairing" = "refresh",
+) {
   const detail = err instanceof Error ? err.message : "Unable to reach Odysseus";
   const target = baseUrl ?? "the paired Odysseus server";
   const networkHint =
     "If this is a local HTTP pairing, your iPhone must be on the same Wi-Fi or VPN as the machine running Odysseus. For off-network use, pair again with a reachable HTTPS tunnel or public Odysseus origin.";
 
   if (isInvalidApiTokenError(err)) {
+    if (context === "pairing") {
+      return `The scanned Odysseus token was rejected by ${target}. Your previous pairing is still active on this device. Scan a fresh code from that exact Odysseus URL, then register the command key again.`;
+    }
     return `The paired Odysseus token was rejected by ${target}. Pair again from that same Tailscale or remote Odysseus URL, then register the command key again.`;
   }
 
-  if (/timed out|could not reach|network request failed/i.test(detail)) {
+  if (
+    /timed out|could not reach|network request failed|request has been canceled|request has been cancelled/i.test(
+      detail,
+    )
+  ) {
     return `Unable to reach ${target}. ${networkHint}`;
   }
 
@@ -180,10 +192,13 @@ type CompanionSnapshot = {
 };
 
 async function fetchCompanionSnapshot(client: OdysseusClient): Promise<CompanionSnapshot> {
-  const [manifest, models, sessions] = await Promise.all([
-    client.manifest(),
-    client.models(),
-    client.sessions(),
+  const requestInit = client.baseUrl.startsWith("https:")
+    ? { timeoutMs: REMOTE_COMPANION_DISCOVERY_TIMEOUT_MS }
+    : {};
+  const manifest = await client.manifest(requestInit);
+  const [models, sessions] = await Promise.all([
+    client.models(requestInit),
+    client.sessions(requestInit),
   ]);
   return {
     manifest,
@@ -359,7 +374,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
         await persistStored(nextStored);
         applySnapshot(snapshot);
       } catch (err) {
-        const message = connectionErrorMessage(baseUrl, err);
+        const message = connectionErrorMessage(baseUrl, err, "pairing");
         setError(message);
         throw new Error(message);
       }

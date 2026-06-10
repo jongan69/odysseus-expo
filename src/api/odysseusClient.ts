@@ -393,27 +393,30 @@ export class OdysseusClient {
     this.token = token.trim();
   }
 
-  manifest() {
+  manifest(init: RequestInit & { timeoutMs?: number } = {}) {
     return requestJson<CompanionManifest>(
       this.baseUrl,
       "/api/companion/manifest",
       this.token,
+      init,
     );
   }
 
-  models() {
+  models(init: RequestInit & { timeoutMs?: number } = {}) {
     return requestJson<{ endpoints: CompanionEndpoint[] }>(
       this.baseUrl,
       "/api/companion/models",
       this.token,
+      init,
     );
   }
 
-  sessions() {
+  sessions(init: RequestInit & { timeoutMs?: number } = {}) {
     return requestJson<{ sessions: CompanionSession[] }>(
       this.baseUrl,
       "/api/companion/sessions",
       this.token,
+      init,
     );
   }
 
