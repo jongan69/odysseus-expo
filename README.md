@@ -158,9 +158,16 @@ Same-network development pairings can provide host and port:
 ```
 
 Pairing can be completed by scanning the QR code or pasting the JSON payload
-into the pairing screen. When `base_url` is present, the app uses its origin
-and ignores `host` and `port`. HTTP is intended for trusted same-network
-development devices. Use HTTPS only with trusted Odysseus origins.
+into the pairing screen. When `base_url` is present, the app prefers that
+origin first and falls back to `host` + `port` only when the remote origin is
+unreachable. HTTP is intended for trusted same-network development devices.
+Use HTTPS only with trusted Odysseus origins.
+
+For Tailscale pairings, the host Mac should run the full `Tailscale.app`
+network extension. A rootless/userspace `tailscaled` setup can leave the
+`https://<machine>.ts.net` origin working only through Tailscale's local proxy
+on the Mac, which means normal Safari or `curl` checks on the host may fail and
+mobile debugging gets misleading fast.
 
 After pairing, the app stores the payload in `expo-secure-store` on native
 platforms. Web falls back to in-memory storage for the current runtime.

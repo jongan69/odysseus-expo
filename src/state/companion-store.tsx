@@ -165,7 +165,7 @@ function connectionErrorMessage(
   const detail = err instanceof Error ? err.message : "Unable to reach Odysseus";
   const target = baseUrl ?? "the paired Odysseus server";
   const networkHint =
-    "If this is a local HTTP pairing, your iPhone must be on the same Wi-Fi or VPN as the machine running Odysseus. For off-network use, pair again with a reachable HTTPS tunnel or public Odysseus origin.";
+    "If this is a local HTTP pairing, your iPhone must be on the same Wi-Fi or VPN as the machine running Odysseus. For off-network use, pair again with a reachable HTTPS tunnel or public Odysseus origin. For Tailscale ts.net pairings on a Mac host, prefer the full Tailscale app with its network extension over a proxy-only/rootless daemon.";
 
   if (isInvalidApiTokenError(err)) {
     if (context === "pairing") {

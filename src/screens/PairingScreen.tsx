@@ -175,7 +175,7 @@ export function PairingScreen({
         <Icon icon={useHttps ? Wifi : ShieldAlert} className="h-5 w-5 text-foreground" />
         <Text className="flex-1 text-sm leading-5 text-muted-foreground">
           {useHttps
-            ? "HTTPS transport selected. Keep using only trusted Odysseus origins."
+            ? "HTTPS transport selected. Keep using only trusted Odysseus origins. For Tailscale ts.net hosts on macOS, use the full Tailscale app instead of a proxy-only/rootless daemon."
             : "HTTP transport is intended for a trusted same-network development device."}
         </Text>
       </View>
