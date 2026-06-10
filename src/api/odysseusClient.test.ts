@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import {
+  companionBaseUrlCandidatesFromPairing,
   OdysseusApiError,
   OdysseusClient,
   chatEventFromJson,
@@ -49,9 +50,20 @@ describe("pairing payload parsing", () => {
       token,
     });
 
+    expect(payload).toEqual({
+      v: 1,
+      base_url: "https://remote.example.com:8443",
+      host: "192.168.1.50",
+      port: 7860,
+      token,
+    });
     expect(companionBaseUrlFromPairing(payload)).toBe(
       "https://remote.example.com:8443",
     );
+    expect(companionBaseUrlCandidatesFromPairing(payload)).toEqual([
+      "https://remote.example.com:8443",
+      "http://192.168.1.50:7860",
+    ]);
   });
 
   test("LAN payload with host, port, and token succeeds", () => {

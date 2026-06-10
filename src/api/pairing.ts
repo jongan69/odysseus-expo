@@ -33,6 +33,26 @@ export function normalizeBaseUrl(input: string) {
   return url.origin;
 }
 
+function parseOptionalHostPort(payload: Record<string, unknown>) {
+  const host = String(payload.host ?? "").trim();
+  const hasPort = payload.port !== undefined && payload.port !== null && payload.port !== "";
+  const port = Number(payload.port);
+
+  if (!host && !hasPort) return {};
+  if (!host) throw new Error("Pairing host is required");
+  if (!hasPort) throw new Error("Pairing port is required");
+  if (/[\s/\\?#]/.test(host)) throw new Error("Pairing host is invalid");
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("Pairing port must be an integer between 1 and 65535");
+  }
+  return { host, port };
+}
+
+function hostPortBaseUrl(host: string, port: number, protocol: "http" | "https" = "http") {
+  const normalizedHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  return `${protocol}://${normalizedHost}:${port}`;
+}
+
 export function parsePairingPayload(input: string | unknown): PairingPayload {
   const payload = typeof input === "string" ? JSON.parse(input) : input;
   if (!isPlainObject(payload)) {
@@ -40,10 +60,8 @@ export function parsePairingPayload(input: string | unknown): PairingPayload {
   }
   const version = Number(payload.v);
   const baseUrl = String(payload.base_url ?? "").trim();
-  const host = String(payload.host ?? "").trim();
-  const hasPort = payload.port !== undefined && payload.port !== null && payload.port !== "";
-  const port = Number(payload.port);
   const token = String(payload.token ?? "").trim();
+  const hostPort = parseOptionalHostPort(payload);
 
   if (version !== PAIRING_VERSION) {
     throw new Error("Unsupported pairing payload version");
@@ -51,27 +69,29 @@ export function parsePairingPayload(input: string | unknown): PairingPayload {
   if (baseUrl) {
     const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
     if (!token.startsWith("ody_")) throw new Error("Pairing token is invalid");
-    return { v: version, base_url: normalizedBaseUrl, token };
+    return { v: version, base_url: normalizedBaseUrl, token, ...hostPort };
   }
-  if (!host) throw new Error("Pairing host is required");
-  if (!hasPort) throw new Error("Pairing port is required");
-  if (/[\s/\\?#]/.test(host)) throw new Error("Pairing host is invalid");
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("Pairing port must be an integer between 1 and 65535");
-  }
+  if (!("host" in hostPort) || !("port" in hostPort)) throw new Error("Pairing host is required");
   if (!token.startsWith("ody_")) throw new Error("Pairing token is invalid");
-  return { v: version, host, port, token };
+  return { v: version, token, ...hostPort };
+}
+
+export function companionBaseUrlCandidatesFromPairing(
+  input: PairingPayload,
+  protocol: "http" | "https" = "http",
+) {
+  const payload = parsePairingPayload(input);
+  const candidates: string[] = [];
+  if (payload.base_url) candidates.push(payload.base_url);
+  if (payload.host && payload.port) {
+    candidates.push(hostPortBaseUrl(payload.host, payload.port, protocol));
+  }
+  return [...new Set(candidates)];
 }
 
 export function companionBaseUrlFromPairing(
   input: PairingPayload,
   protocol: "http" | "https" = "http",
 ) {
-  const payload = parsePairingPayload(input);
-  if (payload.base_url) return payload.base_url;
-  const host =
-    payload.host!.includes(":") && !payload.host!.startsWith("[")
-      ? `[${payload.host}]`
-      : payload.host!;
-  return `${protocol}://${host}:${payload.port}`;
+  return companionBaseUrlCandidatesFromPairing(input, protocol)[0]!;
 }

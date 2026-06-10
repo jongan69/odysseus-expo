@@ -1,6 +1,7 @@
 import type { CommandKeyPair, JsonValue } from "@/crypto/companionSigning";
 
 export {
+  companionBaseUrlCandidatesFromPairing,
   companionBaseUrlFromPairing,
   normalizeBaseUrl,
   parsePairingPayload,

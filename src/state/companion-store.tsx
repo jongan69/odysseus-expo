@@ -1,6 +1,6 @@
 import {
   OdysseusClient,
-  companionBaseUrlFromPairing,
+  companionBaseUrlCandidatesFromPairing,
   isInvalidApiTokenError,
   parsePairingPayload,
   type CommandDefinition,
@@ -185,6 +185,13 @@ function connectionErrorMessage(
   return detail;
 }
 
+function isReachabilityError(err: unknown) {
+  const detail = err instanceof Error ? err.message : String(err ?? "");
+  return /timed out|could not reach|network request failed|request has been canceled|request has been cancelled/i.test(
+    detail,
+  );
+}
+
 type CompanionSnapshot = {
   manifest: CompanionManifest;
   endpoints: CompanionEndpoint[];
@@ -358,23 +365,36 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
   const pairFromPayload = useCallback(
     async (payloadText: string, protocol: "http" | "https" = "http") => {
       const pairing = parsePairingPayload(payloadText);
-      const baseUrl = companionBaseUrlFromPairing(pairing, protocol);
-      const nextProtocol = baseUrl.startsWith("https:") ? "https" : "http";
-      const nextStored = {
-        pairing,
-        baseUrl,
-        protocol: nextProtocol,
-      } satisfies StoredPairing;
-      const nextClient = new OdysseusClient(baseUrl, pairing.token);
       setError(undefined);
+      const candidateBaseUrls = companionBaseUrlCandidatesFromPairing(pairing, protocol);
       try {
-        const snapshot = await fetchCompanionSnapshot(nextClient);
-        await deleteSecureItem(COMMAND_KEY_STORAGE_KEY);
-        setCommandKey(undefined);
-        await persistStored(nextStored);
-        applySnapshot(snapshot);
+        let lastError: unknown;
+        for (const baseUrl of candidateBaseUrls) {
+          try {
+            const snapshot = await fetchCompanionSnapshot(
+              new OdysseusClient(baseUrl, pairing.token),
+            );
+            const nextProtocol = baseUrl.startsWith("https:") ? "https" : "http";
+            const nextStored = {
+              pairing,
+              baseUrl,
+              protocol: nextProtocol,
+            } satisfies StoredPairing;
+            await deleteSecureItem(COMMAND_KEY_STORAGE_KEY);
+            setCommandKey(undefined);
+            await persistStored(nextStored);
+            applySnapshot(snapshot);
+            return;
+          } catch (err) {
+            lastError = err;
+            if (!isReachabilityError(err) || baseUrl === candidateBaseUrls.at(-1)) {
+              throw err;
+            }
+          }
+        }
+        throw lastError;
       } catch (err) {
-        const message = connectionErrorMessage(baseUrl, err, "pairing");
+        const message = connectionErrorMessage(candidateBaseUrls.at(-1), err, "pairing");
         setError(message);
         throw new Error(message);
       }
