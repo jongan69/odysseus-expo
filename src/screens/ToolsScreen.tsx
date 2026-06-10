@@ -34,7 +34,7 @@ function endpointAvailable(paths: string[], needle: string) {
 }
 
 export function ToolsScreen() {
-  const { canChat, canUseCommands, commandCatalog, manifest } = useCompanion();
+  const { canChat, canUseCommands, canUseAgentBash, commandCatalog, manifest } = useCompanion();
   const commandNames = useMemo(
     () => new Set(commandCatalog.map((command) => command.name)),
     [commandCatalog],
@@ -43,10 +43,7 @@ export function ToolsScreen() {
     () => Object.values(manifest?.endpoints ?? {}).map((endpoint) => endpoint.path),
     [manifest?.endpoints],
   );
-  const rawShellEnabled = Boolean(
-    manifest?.features?.signed_commands?.raw_shell_enabled ||
-      manifest?.features?.remote_development?.raw_shell_enabled,
-  );
+  const rawShellEnabled = canUseAgentBash;
   const workspaceFilesEnabled = Boolean(
     manifest?.features?.remote_development?.workspace_file_control_enabled ||
       commandNames.has("list_files") ||
@@ -90,10 +87,10 @@ export function ToolsScreen() {
     },
     {
       title: "Raw Terminal",
-      description: "Direct shell access is only available when the manifest allows it.",
+      description: "Agent-mode bash access for code changes, git work, and deploy steps.",
       enabled: canUseCommands && rawShellEnabled,
-      detail: rawShellEnabled ? "Enabled by manifest" : "Disabled by manifest",
-      href: rawShellEnabled ? "/commands" : undefined,
+      detail: rawShellEnabled ? "Remote development scope" : "Not advertised",
+      href: rawShellEnabled ? "/goal" : undefined,
       icon: TerminalSquare,
     },
     {

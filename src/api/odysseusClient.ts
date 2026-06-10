@@ -121,6 +121,7 @@ export type CompanionManifest = {
       resume_path?: string;
       stop_path?: string;
       status_path?: string;
+      agent_bash_requires_remote_development?: boolean;
     };
     signed_commands?: {
       status?: string;
@@ -129,6 +130,7 @@ export type CompanionManifest = {
       headers?: Record<string, string>;
       commands?: CommandDefinition[];
       allowed_commands?: string[];
+      allowed_workspace_roots?: string[];
       raw_shell_enabled?: boolean;
       key_registry?: {
         status?: string;
@@ -140,6 +142,9 @@ export type CompanionManifest = {
       status?: string;
       raw_shell_enabled?: boolean;
       workspace_file_control_enabled?: boolean;
+      allowed_workspace_roots?: string[];
+      agent_bash_enabled?: boolean;
+      agent_bash_requires_remote_development?: boolean;
       requires_signed_commands?: boolean;
     };
     goal_runs?: {
@@ -147,6 +152,7 @@ export type CompanionManifest = {
       available?: boolean;
       required_bearer_scope?: string;
       requires_session_id?: boolean;
+      allow_bash_requires_remote_development?: boolean;
       start_path?: string;
       list_path?: string;
       status_path?: string;

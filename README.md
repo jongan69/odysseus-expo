@@ -190,6 +190,15 @@ The companion client calls these server endpoints:
 | `DELETE /api/companion/keys/:keyId` | Revokes the registered command key |
 | `POST /api/companion/commands` | Runs a signed command request |
 
+When the paired server advertises `features.remote_development.allowed_workspace_roots`,
+the Commands screen uses that dynamic list as the workspace picker for
+`list_files`, `read_file`, `edit_file`, and `run_check` instead of relying on a
+hard-coded absolute path in the mobile client.
+
+When the paired server advertises `features.remote_development.agent_bash_enabled`,
+the chat and goal screens expose the Terminal toggle for agent-mode bash work.
+That path still requires the paired token to carry `remote_development`.
+
 Command requests include `X-Odysseus-Command-*` headers generated from the
 device key. The private signing seed stays on the device.
 

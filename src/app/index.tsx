@@ -804,11 +804,7 @@ export default function ChatScreen() {
   const { isGenerating, streamingStore } = chat;
   const activeSessionIsGenerating =
     isGenerating && chat.generatingSessionId === companion.activeSessionId;
-  const terminalAvailable = Boolean(
-    companion.canUseCommands &&
-      (companion.manifest?.features?.signed_commands?.raw_shell_enabled ||
-        companion.manifest?.features?.remote_development?.raw_shell_enabled),
-  );
+  const terminalAvailable = companion.canUseAgentBash;
 
   const renderMessage = useCallback(
     ({ item }: { item: ChatMessage }) => {

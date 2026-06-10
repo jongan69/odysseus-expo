@@ -199,6 +199,7 @@ export function PursueGoalScreen() {
     canChat,
     createSession,
     manifest,
+    canUseAgentBash,
   } = useCompanion();
   const [goalInput, setGoalInput] = useState("");
   const [goalRun, setGoalRun] = useState<GoalRunRecord | null>(null);
@@ -220,10 +221,7 @@ export function PursueGoalScreen() {
       }),
     [baseUrl, pairing?.token],
   );
-  const terminalAvailable = Boolean(
-    manifest?.features?.signed_commands?.raw_shell_enabled ||
-      manifest?.features?.remote_development?.raw_shell_enabled,
-  );
+  const terminalAvailable = canUseAgentBash;
   const serverGoalRunsAvailable = Boolean(
     manifest?.features?.goal_runs?.available !== false &&
       manifest?.features?.goal_runs?.start_path,

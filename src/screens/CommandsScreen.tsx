@@ -47,6 +47,7 @@ function coerceArgs(command: CommandDefinition | undefined, args: ArgsState) {
 export function CommandsScreen() {
   const {
     commandCatalog,
+    allowedWorkspaceRoots,
     commandKey,
     canUseCommands,
     ensureCommandKeyRegistered,
@@ -54,6 +55,8 @@ export function CommandsScreen() {
     refresh,
     resetPairing,
     manifest,
+    selectedWorkspace,
+    setSelectedWorkspace,
   } = useCompanion();
   const [selectedName, setSelectedName] = useState(commandCatalog[0]?.name);
   const selected = useMemo(
@@ -95,6 +98,7 @@ export function CommandsScreen() {
   const properties = selected?.args_schema?.properties ?? {};
   const required = new Set(selected?.args_schema?.required ?? []);
   const showPairAgain = error?.includes("paired Odysseus token was rejected");
+  const selectedRequiresWorkspace = Boolean(properties.workspace);
 
   return (
     <ScrollView
@@ -145,6 +149,41 @@ export function CommandsScreen() {
         </Pressable>
       </View>
 
+      {!!allowedWorkspaceRoots.length && (
+        <View className="gap-3 rounded-[18px] border border-border bg-card p-4 border-continuous">
+          <View className="gap-1">
+            <Text className="text-base font-semibold text-foreground">Workspace</Text>
+            <Text className="text-sm leading-5 text-muted-foreground">
+              Auto-discovered workspace roots from the paired Odysseus server.
+            </Text>
+          </View>
+          <View className="gap-2">
+            {allowedWorkspaceRoots.map((workspaceRoot) => {
+              const active = selectedWorkspace === workspaceRoot;
+              return (
+                <Pressable
+                  key={workspaceRoot}
+                  onPress={() => void setSelectedWorkspace(workspaceRoot)}
+                  className={cn(
+                    "rounded-xl border px-3 py-3 active:bg-muted border-continuous",
+                    active ? "border-foreground bg-muted" : "border-border bg-background",
+                  )}
+                >
+                  <Text
+                    className={cn(
+                      "font-mono text-xs leading-5",
+                      active ? "text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    {workspaceRoot}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
       <View className="gap-2">
         {commandCatalog.map((command) => {
           const selectedCommand = selected?.name === command.name;
@@ -187,7 +226,20 @@ export function CommandsScreen() {
           <Text className="font-mono text-base font-semibold text-foreground">
             {selected.name}
           </Text>
+          {selectedRequiresWorkspace && selectedWorkspace && (
+            <View className="rounded-xl border border-border bg-background px-3 py-3 border-continuous">
+              <Text className="text-[11px] font-semibold uppercase tracking-[0.3px] text-muted-foreground">
+                Workspace
+              </Text>
+              <Text className="mt-1 font-mono text-xs leading-5 text-foreground">
+                {selectedWorkspace}
+              </Text>
+            </View>
+          )}
           {Object.entries(properties).map(([name, schema]) => {
+            if (name === "workspace" && selectedWorkspace) {
+              return null;
+            }
             const label = `${name}${required.has(name) ? " *" : ""}`;
             if (schema.type === "boolean") {
               return (
@@ -222,7 +274,7 @@ export function CommandsScreen() {
           })}
           <Pressable
             onPress={run}
-            disabled={busy || !canUseCommands}
+            disabled={busy || !canUseCommands || (selectedRequiresWorkspace && !selectedWorkspace)}
             className="flex-row items-center justify-center gap-2 rounded-xl bg-foreground py-3 active:opacity-80 disabled:opacity-40 border-continuous"
           >
             <Icon icon={Play} className="h-4 w-4 text-background" />

@@ -49,6 +49,7 @@ type StoredPairing = {
   activeSessionId?: string;
   selectedEndpointId?: string;
   selectedModel?: string;
+  selectedWorkspace?: string;
 };
 
 type CompanionStatus = "loading" | "unpaired" | "paired" | "error";
@@ -68,9 +69,12 @@ type CompanionContextValue = {
   selectedEndpoint?: CompanionEndpoint;
   commandKey?: CommandKeyPair;
   commandCatalog: CommandDefinition[];
+  allowedWorkspaceRoots: string[];
+  selectedWorkspace?: string;
   tokenScopes: string[];
   canChat: boolean;
   canUseCommands: boolean;
+  canUseAgentBash: boolean;
   isInsecureTransport: boolean;
   error?: string;
   client?: OdysseusClient;
@@ -85,6 +89,7 @@ type CompanionContextValue = {
   }) => Promise<CompanionSession>;
   setActiveSessionId: (sessionId: string) => Promise<void>;
   setSelectedModel: (endpointId?: string, model?: string) => Promise<void>;
+  setSelectedWorkspace: (workspace?: string) => Promise<void>;
   ensureCommandKeyRegistered: () => Promise<CommandKeyPair>;
   revokeCommandKey: () => Promise<void>;
   sendCommand: (
@@ -131,6 +136,25 @@ function commandCatalogFromManifest(manifest?: CompanionManifest) {
       args_schema: { type: "object", additionalProperties: false, properties: {} },
     },
   ] satisfies CommandDefinition[];
+}
+
+function allowedWorkspaceRootsFromManifest(manifest?: CompanionManifest) {
+  const remoteRoots = manifest?.features?.remote_development?.allowed_workspace_roots;
+  if (Array.isArray(remoteRoots) && remoteRoots.length) return remoteRoots;
+  const signedCommandRoots = manifest?.features?.signed_commands?.allowed_workspace_roots;
+  if (Array.isArray(signedCommandRoots) && signedCommandRoots.length) return signedCommandRoots;
+  return [] as string[];
+}
+
+function agentBashAvailableFromManifest(
+  manifest: CompanionManifest | undefined,
+  canUseCommands: boolean,
+) {
+  if (!canUseCommands) return false;
+  if (manifest?.features?.remote_development?.agent_bash_enabled) return true;
+  if (manifest?.features?.remote_development?.raw_shell_enabled) return true;
+  if (manifest?.features?.signed_commands?.raw_shell_enabled) return true;
+  return false;
 }
 
 function parseStoredPairing(value: string | null): StoredPairing | null {
@@ -272,6 +296,11 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     return new OdysseusClient(stored.baseUrl, stored.pairing.token);
   }, [stored]);
 
+  const allowedWorkspaceRoots = useMemo(
+    () => allowedWorkspaceRootsFromManifest(manifest),
+    [manifest],
+  );
+
   const applySnapshot = useCallback((snapshot: CompanionSnapshot) => {
     setManifest(snapshot.manifest);
     setEndpoints(snapshot.endpoints);
@@ -339,6 +368,23 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     setStored(nextStored);
     await setSecureItem(PAIRING_STORAGE_KEY, JSON.stringify(nextStored));
   }, []);
+
+  useEffect(() => {
+    if (!stored) return;
+    if (!allowedWorkspaceRoots.length) {
+      if (stored.selectedWorkspace) {
+        void persistStored({ ...stored, selectedWorkspace: undefined });
+      }
+      return;
+    }
+    if (stored.selectedWorkspace && allowedWorkspaceRoots.includes(stored.selectedWorkspace)) {
+      return;
+    }
+    void persistStored({
+      ...stored,
+      selectedWorkspace: allowedWorkspaceRoots[0],
+    });
+  }, [allowedWorkspaceRoots, persistStored, stored]);
 
   useEffect(() => {
     const scope = storageScope;
@@ -464,6 +510,19 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     [persistStored, stored],
   );
 
+  const setSelectedWorkspace = useCallback(
+    async (workspace?: string) => {
+      if (!stored) return;
+      const nextWorkspace =
+        workspace && allowedWorkspaceRoots.includes(workspace) ? workspace : undefined;
+      await persistStored({
+        ...stored,
+        selectedWorkspace: nextWorkspace,
+      });
+    },
+    [allowedWorkspaceRoots, persistStored, stored],
+  );
+
   const ensureCommandKeyRegistered = useCallback(async () => {
     if (!client) throw new Error("Pair with Odysseus first");
     let nextKey = commandKey ?? (await createCommandKeyPair());
@@ -499,8 +558,19 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     async (command: string, args: Record<string, JsonValue> = {}) => {
       if (!client) throw new Error("Pair with Odysseus first");
       const key = await ensureCommandKeyRegistered();
+      const commandDefinition = commandCatalogFromManifest(manifest).find(
+        (item) => item.name === command,
+      );
+      const requiresWorkspace = Boolean(
+        commandDefinition?.args_schema?.properties?.workspace &&
+          !("workspace" in args),
+      );
+      const nextArgs =
+        requiresWorkspace && stored?.selectedWorkspace
+          ? { workspace: stored.selectedWorkspace, ...args }
+          : args;
       try {
-        return await client.command(command, args, key);
+        return await client.command(command, nextArgs, key);
       } catch (err) {
         const message = connectionErrorMessage(stored?.baseUrl, err);
         setStatus("error");
@@ -508,7 +578,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
         throw new Error(message);
       }
     },
-    [client, ensureCommandKeyRegistered, stored?.baseUrl],
+    [client, ensureCommandKeyRegistered, manifest, stored],
   );
 
   const archiveSession = useCallback(
@@ -614,6 +684,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
   const canUseCommands =
     tokenScopes.includes(manifest?.auth?.required_command_scope || "remote_development") ||
     manifest?.auth?.mode === "session";
+  const canUseAgentBash = agentBashAvailableFromManifest(manifest, canUseCommands);
   const commandCatalog = commandCatalogFromManifest(manifest);
 
   const value = useMemo<CompanionContextValue>(
@@ -632,9 +703,12 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       selectedEndpoint,
       commandKey,
       commandCatalog,
+      allowedWorkspaceRoots,
+      selectedWorkspace: stored?.selectedWorkspace,
       tokenScopes,
       canChat,
       canUseCommands,
+      canUseAgentBash,
       isInsecureTransport: !!stored && stored.protocol !== "https",
       error,
       client,
@@ -644,6 +718,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       createSession,
       setActiveSessionId,
       setSelectedModel,
+      setSelectedWorkspace,
       ensureCommandKeyRegistered,
       revokeCommandKey,
       sendCommand,
@@ -655,8 +730,10 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       activeSession,
       canChat,
       canUseCommands,
+      canUseAgentBash,
       client,
       commandCatalog,
+      allowedWorkspaceRoots,
       commandKey,
       createSession,
       endpoints,
@@ -672,12 +749,14 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       revokeCommandKey,
       selectedEndpoint,
       selectedModel,
+      stored?.selectedWorkspace,
       sendCommand,
       visibleSessions,
       resolvedActiveSessionId,
       stored,
       setActiveSessionId,
       setSelectedModel,
+      setSelectedWorkspace,
       status,
       tokenScopes,
     ],
