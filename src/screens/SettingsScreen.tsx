@@ -1,5 +1,6 @@
 import { Icon } from "@/components/icon";
 import { useCompanion } from "@/state/companion-store";
+import { appRoutes } from "@/utils/routes";
 import { useRouter } from "expo-router";
 import {
   AlertTriangle,
@@ -10,7 +11,7 @@ import {
   Shield,
   Trash2,
 } from "lucide-react-native";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 
 export function SettingsScreen() {
   const router = useRouter();
@@ -24,6 +25,41 @@ export function SettingsScreen() {
     revokeCommandKey,
     forgetAll,
   } = useCompanion();
+
+  function confirmRevokeCommandKey() {
+    if (!commandKey) return;
+    Alert.alert(
+      "Revoke local key?",
+      "This removes the signed-command key from this device. You can register a fresh key again later.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Revoke",
+          style: "destructive",
+          onPress: () => {
+            void revokeCommandKey();
+          },
+        },
+      ],
+    );
+  }
+
+  function confirmForgetAll() {
+    Alert.alert(
+      "Forget this device?",
+      "This removes the pairing, the local command key, and cached chat/session state from this device.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Forget",
+          style: "destructive",
+          onPress: () => {
+            void forgetAll();
+          },
+        },
+      ],
+    );
+  }
 
   return (
     <ScrollView
@@ -67,7 +103,7 @@ export function SettingsScreen() {
           ))}
         </View>
         <Pressable
-          onPress={() => router.navigate("/pairing" as any)}
+          onPress={() => router.navigate(appRoutes.pairing)}
           className="flex-row items-center justify-center gap-2 rounded-xl bg-foreground py-3 active:opacity-80 border-continuous"
         >
           <Icon icon={QrCode} className="h-4 w-4 text-background" />
@@ -97,7 +133,7 @@ export function SettingsScreen() {
           </View>
         </View>
         <Pressable
-          onPress={revokeCommandKey}
+          onPress={confirmRevokeCommandKey}
           disabled={!commandKey}
           className="flex-row items-center justify-center gap-2 rounded-xl bg-muted py-3 active:bg-accent disabled:opacity-40 border-continuous"
         >
@@ -107,7 +143,7 @@ export function SettingsScreen() {
       </View>
 
       <Pressable
-        onPress={forgetAll}
+        onPress={confirmForgetAll}
         className="flex-row items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-3 active:opacity-80 border-continuous"
       >
         <Icon icon={LogOut} className="h-4 w-4 text-background" />

@@ -11,7 +11,7 @@ import {
   Trash2,
 } from "lucide-react-native";
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, Switch, Text, TextInput, View } from "react-native";
 
 export function SessionScreen() {
   const {
@@ -84,6 +84,39 @@ export function SessionScreen() {
     } finally {
       setBusySessionId(undefined);
     }
+  }
+
+  function confirmArchiveSession(sessionId: string) {
+    Alert.alert(
+      "Archive session?",
+      "This hides the session from the main list on this device. You can still recover it from server history later.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Archive",
+          onPress: () => {
+            void handleArchiveSession(sessionId);
+          },
+        },
+      ],
+    );
+  }
+
+  function confirmDeleteSession(sessionId: string) {
+    Alert.alert(
+      "Delete local session copy?",
+      "This removes cached messages for this session on this device and hides it from the local list.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            void handleDeleteSession(sessionId);
+          },
+        },
+      ],
+    );
   }
 
   return (
@@ -243,7 +276,7 @@ export function SessionScreen() {
               <View className="flex-row items-center gap-2">
                 <Pressable
                   disabled={!!isBusy}
-                  onPress={() => handleArchiveSession(session.id)}
+                  onPress={() => confirmArchiveSession(session.id)}
                   className={cn(
                     "h-10 w-10 items-center justify-center rounded-full bg-muted active:bg-accent",
                     isBusy && "opacity-50",
@@ -253,7 +286,7 @@ export function SessionScreen() {
                 </Pressable>
                 <Pressable
                   disabled={!!isBusy}
-                  onPress={() => handleDeleteSession(session.id)}
+                  onPress={() => confirmDeleteSession(session.id)}
                   className={cn(
                     "h-10 w-10 items-center justify-center rounded-full bg-muted active:bg-accent",
                     isBusy && "opacity-50",

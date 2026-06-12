@@ -1,8 +1,9 @@
 import { useCompanion } from "@/state/companion-store";
+import { appRoutes } from "@/utils/routes";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tooltip from "@radix-ui/react-tooltip";
-import { Link, usePathname } from "expo-router";
+import { Link, type Href, usePathname } from "expo-router";
 import {
   Archive,
   Edit3,
@@ -60,12 +61,12 @@ function SidebarTooltip({
 }
 
 const NAV_ITEMS = [
-  { href: "/", label: "Chat", icon: MessageSquarePlus },
-  { href: "/chats", label: "Sessions", icon: Server },
-  { href: "/goal", label: "Pursue Goal", icon: Target },
-  { href: "/commands", label: "Commands", icon: TerminalSquare },
-  { href: "/tools", label: "Tools", icon: Wrench },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: appRoutes.chat, label: "Chat", icon: MessageSquarePlus },
+  { href: appRoutes.chats, label: "Sessions", icon: Server },
+  { href: appRoutes.goal, label: "Pursue Goal", icon: Target },
+  { href: appRoutes.commands, label: "Commands", icon: TerminalSquare },
+  { href: appRoutes.tools, label: "Tools", icon: Wrench },
+  { href: appRoutes.settings, label: "Settings", icon: Settings },
 ] as const;
 
 
@@ -172,7 +173,7 @@ export function Sidebar({
             {NAV_ITEMS.map((item) => {
               const isActive = pathname === item.href;
               return (
-                <Link key={item.href} href={item.href as any} asChild>
+                <Link key={item.href} href={item.href as Href} asChild>
                   <Pressable
                     className={`px-4 py-3 mx-2 rounded-[10px] ${
                       isActive
@@ -206,7 +207,7 @@ export function Sidebar({
               return (
                 <ContextMenu.Root key={session.id}>
                   <ContextMenu.Trigger asChild>
-                    <Link href="/" asChild>
+                    <Link href={appRoutes.chat} asChild>
                       <Pressable
                         onPress={() => setActiveSessionId(session.id)}
                         className={`px-4 py-2.5 mx-2 rounded-[10px] ${
@@ -287,7 +288,7 @@ export function Sidebar({
                 </Pressable>
               </SidebarTooltip>
               <SidebarTooltip label="New chat">
-                <Link href="/" asChild>
+                <Link href={appRoutes.chat} asChild>
                   <Pressable className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground">
                     <SquarePen size={18} strokeWidth={1.5} />
                   </Pressable>
@@ -349,7 +350,7 @@ export function Sidebar({
               </DropdownMenu.Root>
 
               <View className="flex-1" />
-              <Link href="/" asChild>
+              <Link href={appRoutes.chat} asChild>
                 <Pressable className="w-10 h-10 rounded-full bg-foreground hover:bg-foreground/90 active:bg-foreground/80 items-center justify-center flex">
                   <View className="text-background">
                     <MessageSquarePlus size={18} strokeWidth={1.5} />

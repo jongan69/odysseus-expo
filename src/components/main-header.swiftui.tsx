@@ -1,4 +1,5 @@
 import { useCompanion } from "@/state/companion-store";
+import { appRoutes } from "@/utils/routes";
 import {
   Button,
   Host,
@@ -64,17 +65,17 @@ function HeaderTitleMenu() {
           <Button
             systemImage="server.rack"
             label="Session"
-            onPress={() => router.navigate("/session")}
+            onPress={() => router.navigate(appRoutes.session)}
           />
           <Button
             systemImage="terminal"
             label="Commands"
-            onPress={() => router.navigate("/commands")}
+            onPress={() => router.navigate(appRoutes.commands)}
           />
           <Button
             systemImage="wrench.and.screwdriver"
             label="Tools"
-            onPress={() => router.navigate("/tools" as any)}
+            onPress={() => router.navigate(appRoutes.tools)}
           />
         </Section>
       </Menu>
@@ -96,7 +97,7 @@ export function MainHeader() {
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Button
           icon="terminal"
-          onPress={() => router.navigate("/commands")}
+          onPress={() => router.navigate(appRoutes.commands)}
         />
       </Stack.Toolbar>
     </>

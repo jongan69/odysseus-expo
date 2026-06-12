@@ -4,6 +4,7 @@ import { Icon } from "@/components/icon";
 import { TouchableGlass } from "@/components/touchable-glass";
 import { SafeAreaView } from "@/components/tw";
 import { useCompanion } from "@/state/companion-store";
+import { appRoutes } from "@/utils/routes";
 import { cn } from "@/utils/tailwind";
 import type { Href } from "expo-router";
 import {
@@ -143,41 +144,41 @@ export function DrawerContent({
         <DrawerNavItem
           icon={MessageSquarePlus}
           label="Chat"
-          onPress={() => onNavigate("/")}
+          onPress={() => onNavigate(appRoutes.chat)}
         />
         <DrawerNavItem
           icon={QrCode}
           label="Scan QR Code"
-          onPress={() => onOpenModal("/pairing" as any)}
+          onPress={() => onOpenModal(appRoutes.pairing)}
         />
         <DrawerNavItem
           icon={Server}
           label="Sessions"
-          onPress={() => onNavigate("/chats")}
+          onPress={() => onNavigate(appRoutes.chats)}
         />
         <DrawerNavItem
           icon={Target}
           label="Pursue Goal"
-          onPress={() => onNavigate("/goal" as any)}
+          onPress={() => onNavigate(appRoutes.goal)}
         />
         <DrawerNavItem
           icon={TerminalSquare}
           label="Commands"
-          onPress={() => onNavigate("/commands")}
+          onPress={() => onNavigate(appRoutes.commands)}
         />
         <DrawerNavItem
           icon={Wrench}
           label="Tools"
-          onPress={() => onNavigate("/tools" as any)}
+          onPress={() => onNavigate(appRoutes.tools)}
         />
         <DrawerNavItem
           icon={KeyRound}
           label="Settings"
           onPress={() => {
             if (process.env.EXPO_OS === "android") {
-              onNavigate("/(settings)/settings");
+              onNavigate(appRoutes.settings);
             }
-            onOpenModal("/(settings)/settings");
+            onOpenModal(appRoutes.settings);
           }}
         />
 
@@ -192,7 +193,7 @@ export function DrawerContent({
             active={session.id === activeSessionId}
             onPress={() => {
               setActiveSessionId(session.id);
-              onNavigate("/");
+              onNavigate(appRoutes.chat);
             }}
           />
         ))}
@@ -204,7 +205,7 @@ export function DrawerContent({
         style={{ borderTopWidth: StyleSheet.hairlineWidth }}
       >
         <TouchableGlass
-          onPress={() => onOpenModal("/(settings)/settings")}
+          onPress={() => onOpenModal(appRoutes.settings)}
           className="rounded-full p-2 flex-row items-center gap-2.5 active:opacity-60"
         >
           <View className="w-8 h-8 rounded-full bg-muted items-center justify-center">

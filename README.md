@@ -90,7 +90,7 @@ bunx expo run:ios --device
 After the development client is installed, start Metro for that client:
 
 ```bash
-bunx expo start --dev-client
+bun run start:dev-client
 ```
 
 Then open the installed `Odysseus` app and scan or paste a pairing payload from
@@ -98,12 +98,28 @@ a reachable Odysseus server. Local HTTP pairings require the phone to be on the
 same network or VPN as the server host; off-network use requires a trusted
 reachable HTTPS origin.
 
+## Developer Commands
+
+| Task | Command |
+| --- | --- |
+| Start Metro for the custom development client | `bun run start:dev-client` |
+| Rebuild the iOS development client | `bun run ios` |
+| Rebuild the Android development client | `bun run android` |
+| Start the web target | `bun run web` |
+| Run unit tests, TypeScript, and lint | `bun run check` |
+| Verify iOS and Apple platforms | `bun run verify:ios` |
+| Verify web | `bun run verify:web` |
+| Pull App Store metadata | `bun run store:metadata:pull` |
+| Push App Store metadata | `APP_REVIEW_PHONE=... bun run store:metadata:push` |
+| Regenerate App Store screenshots | `bun run store:screenshots` |
+| Regenerate production image assets | `bun run assets:production` |
+
 ## Running
 
 Start Metro for an installed development client:
 
 ```bash
-bunx expo start --dev-client
+bun run start:dev-client
 ```
 
 Rebuild the native development client when native modules or native config
@@ -126,12 +142,12 @@ This app requires a custom Expo development build and will not work in Expo Go.
 Use the project verification commands:
 
 ```bash
-npx serve-sim
-npx agent-browser
+bun run verify:ios
+bun run verify:web
 ```
 
-Use `npx serve-sim` for iOS and Apple platform checks. Use
-`npx agent-browser` for web verification.
+`bun run verify:ios` wraps `npx serve-sim` for iOS and Apple platform checks.
+`bun run verify:web` wraps `npx agent-browser` for web verification.
 
 ## Pairing
 
@@ -213,13 +229,19 @@ device key. The private signing seed stays on the device.
 | `src/storage/secureCompanionStorage.ts` | Native SecureStore plus web fallback storage |
 | `src/screens` | Pairing, session, commands, and settings screens |
 | `src/components/chat` | Streaming conversation UI and prompt input |
-| `src/global.css` | Tailwind v4 and Uniwind theme tokens |
+| `src/global.css` | Tailwind v4, Uniwind theme tokens, and SF semantic color aliases |
+| `store.config.js` | Canonical App Store metadata plus the required `APP_REVIEW_PHONE` injection |
+| `AGENTS.md` / `CLAUDE.md` | Shared repo instructions for Codex and Claude-compatible agent tooling |
 
 ## App Store Metadata
 
 Manage Apple App Store metadata and screenshots with EAS metadata commands:
 
 ```bash
-npx eas-cli@latest metadata:pull
-npx eas-cli@latest metadata:push
+bun run store:metadata:pull
+APP_REVIEW_PHONE=... bun run store:metadata:push
 ```
+
+`store.config.js` is the single metadata source of truth. Set
+`APP_REVIEW_PHONE` before pushing metadata or submitting a production build so
+the review contact block stays complete.

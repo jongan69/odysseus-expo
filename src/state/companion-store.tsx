@@ -300,6 +300,12 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     () => allowedWorkspaceRootsFromManifest(manifest),
     [manifest],
   );
+  const selectedWorkspace =
+    !allowedWorkspaceRoots.length
+      ? undefined
+      : stored?.selectedWorkspace && allowedWorkspaceRoots.includes(stored.selectedWorkspace)
+        ? stored.selectedWorkspace
+        : allowedWorkspaceRoots[0];
 
   const applySnapshot = useCallback((snapshot: CompanionSnapshot) => {
     setManifest(snapshot.manifest);
@@ -368,23 +374,6 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
     setStored(nextStored);
     await setSecureItem(PAIRING_STORAGE_KEY, JSON.stringify(nextStored));
   }, []);
-
-  useEffect(() => {
-    if (!stored) return;
-    if (!allowedWorkspaceRoots.length) {
-      if (stored.selectedWorkspace) {
-        void persistStored({ ...stored, selectedWorkspace: undefined });
-      }
-      return;
-    }
-    if (stored.selectedWorkspace && allowedWorkspaceRoots.includes(stored.selectedWorkspace)) {
-      return;
-    }
-    void persistStored({
-      ...stored,
-      selectedWorkspace: allowedWorkspaceRoots[0],
-    });
-  }, [allowedWorkspaceRoots, persistStored, stored]);
 
   useEffect(() => {
     const scope = storageScope;
@@ -566,8 +555,8 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
           !("workspace" in args),
       );
       const nextArgs =
-        requiresWorkspace && stored?.selectedWorkspace
-          ? { workspace: stored.selectedWorkspace, ...args }
+        requiresWorkspace && selectedWorkspace
+          ? { workspace: selectedWorkspace, ...args }
           : args;
       try {
         return await client.command(command, nextArgs, key);
@@ -578,7 +567,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
         throw new Error(message);
       }
     },
-    [client, ensureCommandKeyRegistered, manifest, stored],
+    [client, ensureCommandKeyRegistered, manifest, selectedWorkspace, stored],
   );
 
   const archiveSession = useCallback(
@@ -704,7 +693,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       commandKey,
       commandCatalog,
       allowedWorkspaceRoots,
-      selectedWorkspace: stored?.selectedWorkspace,
+      selectedWorkspace,
       tokenScopes,
       canChat,
       canUseCommands,
@@ -749,7 +738,7 @@ export function CompanionProvider({ children }: { children: React.ReactNode }) {
       revokeCommandKey,
       selectedEndpoint,
       selectedModel,
-      stored?.selectedWorkspace,
+      selectedWorkspace,
       sendCommand,
       visibleSessions,
       resolvedActiveSessionId,

@@ -39,6 +39,7 @@ import {
 } from "@/native/backgroundSession";
 import { PairingScreen } from "@/screens/PairingScreen";
 import { useCompanion } from "@/state/companion-store";
+import { appRoutes } from "@/utils/routes";
 import {
   chatSessionStorageScope,
   loadChatSessionMessages,
@@ -868,7 +869,7 @@ export default function ChatScreen() {
             <Icon icon={RefreshCw} className="h-4 w-4 text-background" />
             <Text className="font-semibold text-background">Retry</Text>
           </Pressable>
-          <Link href={"/pairing" as any} asChild>
+          <Link href={appRoutes.pairing} asChild>
             <Pressable className="flex-row items-center justify-center gap-2 rounded-xl bg-muted px-4 py-3 active:bg-accent">
               <Icon icon={QrCode} className="h-4 w-4 text-foreground" />
               <Text className="font-semibold text-foreground">Scan New QR</Text>

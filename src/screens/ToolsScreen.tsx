@@ -1,7 +1,8 @@
 import { Icon } from "@/components/icon";
 import { useCompanion } from "@/state/companion-store";
+import { appRoutes } from "@/utils/routes";
 import { cn } from "@/utils/tailwind";
-import { Link } from "expo-router";
+import { Link, type Href } from "expo-router";
 import {
   CalendarDays,
   Check,
@@ -25,7 +26,7 @@ type ToolFeature = {
   description: string;
   enabled: boolean;
   detail: string;
-  href?: "/commands" | "/goal";
+  href?: Href;
   icon: LucideIcon;
 };
 
@@ -58,7 +59,7 @@ export function ToolsScreen() {
       description: "Run a persistent agent loop until a task is complete or blocked.",
       enabled: canChat,
       detail: canChat ? "Agent loop" : "Chat scope required",
-      href: canChat ? "/goal" : undefined,
+      href: canChat ? appRoutes.goal : undefined,
       icon: Target,
     },
     {
@@ -66,7 +67,7 @@ export function ToolsScreen() {
       description: "Manifest-driven remote development commands with device keys.",
       enabled: canUseCommands && commandCatalog.length > 0,
       detail: `${commandCatalog.length} commands`,
-      href: "/commands",
+      href: appRoutes.commands,
       icon: ShieldCheck,
     },
     {
@@ -74,7 +75,7 @@ export function ToolsScreen() {
       description: "Browse or edit workspace files through signed commands.",
       enabled: canUseCommands && workspaceFilesEnabled,
       detail: workspaceFilesEnabled ? "Command catalog" : "Not advertised",
-      href: workspaceFilesEnabled ? "/commands" : undefined,
+      href: workspaceFilesEnabled ? appRoutes.commands : undefined,
       icon: Folder,
     },
     {
@@ -82,7 +83,7 @@ export function ToolsScreen() {
       description: "Trigger approved checks without raw shell access.",
       enabled: canUseCommands && checksEnabled,
       detail: checksEnabled ? "run_check" : "Not advertised",
-      href: checksEnabled ? "/commands" : undefined,
+      href: checksEnabled ? appRoutes.commands : undefined,
       icon: Wrench,
     },
     {
@@ -90,7 +91,7 @@ export function ToolsScreen() {
       description: "Agent-mode bash access for code changes, git work, and deploy steps.",
       enabled: canUseCommands && rawShellEnabled,
       detail: rawShellEnabled ? "Remote development scope" : "Not advertised",
-      href: rawShellEnabled ? "/goal" : undefined,
+      href: rawShellEnabled ? appRoutes.goal : undefined,
       icon: TerminalSquare,
     },
     {
@@ -229,7 +230,7 @@ function FeatureRow({ feature }: { feature: ToolFeature }) {
 
   if (!feature.enabled || !feature.href) return body;
   return (
-    <Link href={feature.href as any} asChild>
+    <Link href={feature.href} asChild>
       {body}
     </Link>
   );
